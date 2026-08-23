@@ -9,7 +9,7 @@ type Props = {
   };
 };
 
-export default function BookDetail({ book }: Props) {
+export function BookDetail({ book }: Props) {
   return (
     <article>
       <h1>{book.title}</h1>
@@ -19,3 +19,5 @@ export default function BookDetail({ book }: Props) {
     </article>
   );
 }
+
+export default BookDetail;
