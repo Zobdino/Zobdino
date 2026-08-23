@@ -2,7 +2,7 @@ type Props = {
   voices: string[];
 };
 
-export default function PreviewAudioPlayer({ voices }: Props) {
+export function PreviewAudioPlayer({ voices }: Props) {
   return (
     <section>
       <h3>Audio Preview</h3>
@@ -14,3 +14,5 @@ export default function PreviewAudioPlayer({ voices }: Props) {
     </section>
   );
 }
+
+export default PreviewAudioPlayer;
