@@ -11,7 +11,7 @@ type Props = {
   books: Book[];
 };
 
-export default function CatalogGrid({ books }: Props) {
+export function CatalogGrid({ books }: Props) {
   return (
     <section>
       {books.map((book) => (
@@ -20,3 +20,5 @@ export default function CatalogGrid({ books }: Props) {
     </section>
   );
 }
+
+export default CatalogGrid;
