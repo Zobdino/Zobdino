@@ -1,5 +1,7 @@
 import rawEpisodes from "@/content/episodes.json";
 
+import type { VoiceProfileId } from "@/lib/voices";
+
 export type EpisodeFormat = "standard";
 export type AudioAssetStatus = "placeholder" | "ready";
 
@@ -13,6 +15,7 @@ export interface EpisodeAudioAsset {
   downloadable: boolean;
   sha256?: string;
   bytes?: number;
+  voiceProfile?: VoiceProfileId;
 }
 
 export interface TranscriptCue {
