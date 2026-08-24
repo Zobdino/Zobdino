@@ -74,5 +74,54 @@ export async function recordQuotaPause(file, pause) {
 
 export function canReuseSegment(checkpoint, segment) {
   const entry = checkpoint.entries?.[checkpointKey(segment)];
-  return Boolean(entry && entry.textHash === sha256(segment.text) && entry.outputPath);
+  return Boolean(
+    entry &&
+    entry.textHash === sha256(segment.text) &&
+    entry.outputPath &&
+    /^[0-9a-f]{64}$/u.test(String(entry.outputSha256 ?? "")),
+  );
+}
+
+export async function verifyReusableSegment(checkpoint, segment, outputRoot) {
+  const key = checkpointKey(segment);
+  const entry = checkpoint.entries?.[key];
+
+  if (!canReuseSegment(checkpoint, segment) || !entry) {
+    return { reusable: false, reason: "checkpoint-miss" };
+  }
+
+  const root = path.resolve(outputRoot);
+  const output = path.resolve(root, entry.outputPath);
+  const relative = path.relative(root, output);
+
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return { reusable: false, reason: "output-path-escape" };
+  }
+
+  let bytes;
+  try {
+    bytes = await readFile(output);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return { reusable: false, reason: "output-missing" };
+    }
+    throw error;
+  }
+
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  if (digest !== entry.outputSha256) {
+    return {
+      reusable: false,
+      reason: "output-digest-mismatch",
+      expectedSha256: entry.outputSha256,
+      actualSha256: digest,
+    };
+  }
+
+  return {
+    reusable: true,
+    reason: "verified",
+    outputPath: entry.outputPath,
+    outputSha256: digest,
+  };
 }
