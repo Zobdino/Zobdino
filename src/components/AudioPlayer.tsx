@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import {
+  getEpisodeVoiceLabelFa,
   isProductionAudio,
   resolveEpisodeAudioUrl,
 } from "@/lib/audio";
@@ -72,6 +73,7 @@ export default function AudioPlayer({ episode }: { episode: Episode }) {
 
   const sourceUrl = resolveEpisodeAudioUrl(episode.audio);
   const productionAudio = isProductionAudio(episode.audio);
+  const voiceLabel = getEpisodeVoiceLabelFa(episode.audio);
   const active = activeEpisode?.id === episode.id;
   const storedProgress = listening.progress[episode.id];
 
@@ -125,7 +127,7 @@ export default function AudioPlayer({ episode }: { episode: Episode }) {
               : "border-amber-700 bg-amber-950/30 text-amber-300"
           }`}
         >
-          {productionAudio ? "صوت اصلی" : "نمونه آزمایشی"}
+          {voiceLabel}
         </span>
       </div>
 

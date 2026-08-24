@@ -1,4 +1,8 @@
 import type { EpisodeAudioAsset } from "@/lib/episodes";
+import {
+  getVoiceProfileLabelFa,
+  isApprovedVoiceProfile,
+} from "@/lib/voices";
 
 function normalizeBaseUrl(value: string | undefined): string | null {
   const trimmed = value?.trim();
@@ -34,5 +38,9 @@ export function resolveEpisodeAudioUrl(
 export function isProductionAudio(
   audio: EpisodeAudioAsset,
 ): boolean {
-  return audio.status === "ready";
+  return audio.status === "ready" && isApprovedVoiceProfile(audio.voiceProfile);
+}
+
+export function getEpisodeVoiceLabelFa(audio: EpisodeAudioAsset): string {
+  return getVoiceProfileLabelFa(audio.voiceProfile);
 }
