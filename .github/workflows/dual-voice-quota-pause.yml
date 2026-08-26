@@ -1,0 +1,160 @@
+name: Zobdino Dual-Voice Quota Pause Classifier
+
+on:
+  workflow_run:
+    workflows:
+      - Zobdino Dual-Voice Production Batch
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  classify-quota-pause:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+
+    steps:
+      - name: Checkout exact failed source SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+
+      - name: Locate resumable failed checkpoint artifact
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ARTIFACTS="$(
+            gh api \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100"
+          )"
+
+          mapfile -t MATCHES < <(
+            jq -r \
+              --arg run "$SOURCE_RUN_ID" \
+              '.artifacts[]
+               | select(.expired == false)
+               | select(.name | startswith("dual-voice-failed-"))
+               | select(.name | endswith("-" + $run))
+               | .name' \
+              <<<"$ARTIFACTS"
+          )
+
+          if [[ "${#MATCHES[@]}" -eq 0 ]]; then
+            echo "No failed dual-voice checkpoint artifact was produced; skipping quota classification."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          [[ "${#MATCHES[@]}" -eq 1 ]] || {
+            echo "::error::Expected at most one failed checkpoint artifact; got ${#MATCHES[@]}."
+            printf '%s\n' "${MATCHES[@]}"
+            exit 1
+          }
+
+          ARTIFACT_NAME="${MATCHES[0]}"
+          PREFIX="dual-voice-failed-"
+          SUFFIX="-$SOURCE_RUN_ID"
+          BATCH="${ARTIFACT_NAME#$PREFIX}"
+          BATCH="${BATCH%$SUFFIX}"
+
+          [[ -n "$BATCH" ]] || {
+            echo "::error::Could not infer batch from artifact name: $ARTIFACT_NAME"
+            exit 1
+          }
+
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+          echo "batch=$BATCH" >> "$GITHUB_OUTPUT"
+
+      - name: Restore failed checkpoint
+        if: ${{ steps.source.outputs.found == 'true' }}
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ steps.source.outputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          rm -rf .dual-voice
+          mkdir -p .dual-voice
+          gh run download "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" \
+            --dir .dual-voice
+
+      - name: Download failed run logs
+        if: ${{ steps.source.outputs.found == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOG_ZIP="$RUNNER_TEMP/dual-voice-run-logs.zip"
+          LOG_DIR="$RUNNER_TEMP/dual-voice-run-logs"
+          rm -rf "$LOG_DIR"
+          mkdir -p "$LOG_DIR"
+
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/logs" \
+            > "$LOG_ZIP"
+
+          unzip -qq "$LOG_ZIP" -d "$LOG_DIR"
+          find "$LOG_DIR" -type f -print0 \
+            | sort -z \
+            | xargs -0 cat \
+            > .dual-voice/generation-failure.log
+
+          test -s .dual-voice/generation-failure.log || {
+            echo "::error::Downloaded workflow logs were empty."
+            exit 1
+          }
+
+      - name: Classify quota exhaustion and persist pause state
+        id: classify
+        if: ${{ steps.source.outputs.found == 'true' }}
+        shell: bash
+        env:
+          BATCH: ${{ steps.source.outputs.batch }}
+        run: |
+          set +e
+          node scripts/dual-voice/quota-pause-from-log.mjs \
+            --log .dual-voice/generation-failure.log \
+            --out .dual-voice \
+            --batch "$BATCH"
+          STATUS=$?
+          set -e
+
+          if [[ "$STATUS" -eq 2 ]]; then
+            echo "Quota exhaustion not detected; preserving normal failure semantics."
+            echo "paused=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          [[ "$STATUS" -eq 0 ]] || {
+            echo "::error::Quota classifier failed with exit code $STATUS."
+            exit "$STATUS"
+          }
+
+          test -s .dual-voice/quota-paused.json || {
+            echo "::error::Classifier reported quota pause without quota-paused.json."
+            exit 1
+          }
+
+          echo "paused=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload explicit resumable quota-paused artifact
+        if: ${{ steps.classify.outputs.paused == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: dual-voice-paused-${{ steps.source.outputs.batch }}-${{ github.event.workflow_run.id }}
+          path: .dual-voice
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
