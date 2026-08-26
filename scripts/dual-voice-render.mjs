@@ -2068,11 +2068,64 @@ async function validatePendingInteractionPersistenceContract() {
     );
   }
 
+  let expiredResolveCalls = 0;
+  const expired = await resumePendingInteraction({
+    apiKey: "self-test-key",
+    resumeMetadata: {
+      schemaVersion: 1,
+      batch: "batch-a-atomic",
+      chunks: [],
+      pendingInteractions: [
+        {
+          schemaVersion: 1,
+          bookSlug: "atomic-habits",
+          role: "female",
+          providerVoice: "Sulafat",
+          chunkIndex: chunk.index,
+          relativePath: "atomic-habits/female/chunks/01.wav",
+          spokenScriptSha256: sha256(spokenText),
+          spokenChunkSha256: sha256(chunk.text),
+          interactionId: "v1_pending-expired-self-test",
+          pollWindowsUsed: 1,
+          sourceRunId: 790,
+          sourceSha: "5555555555555555555555555555555555555555",
+          artifactId: 988,
+          artifactDigest: "sha256:" + "6".repeat(64),
+        },
+      ],
+    },
+    pendingFile: selfTestPending,
+    outRoot: selfTestRoot,
+    wav: selfTestWav,
+    bookSlug: "atomic-habits",
+    role: "female",
+    voice: "Sulafat",
+    spokenText,
+    chunk,
+    dependencies: {
+      resolveAcceptedInteraction: async () => {
+        expiredResolveCalls += 1;
+        throw new Error(
+          'Gemini interaction GET HTTP 404: {"error":{"code":"not_found","status":"NOT_FOUND","message":"Requested entity was not found."}}',
+        );
+      },
+    },
+  });
+
+  const expiredPendingStillExists = await fileExists(selfTestPending);
+  await unlink(selfTestPending).catch(() => {});
+
+  if (expired !== null || expiredResolveCalls !== 1 || expiredPendingStillExists) {
+    throw new Error(
+      "Expired pending Interaction 404 retirement self-test failed.",
+    );
+  }
+
   console.log(
     "Dual-voice pending Interaction checkpoint PASS: " +
     "accepted ID persists before polling; verified pending ID resumes " +
     "without a generation POST; poll windows are bounded at 2; " +
-    "stale ID retires before one fresh generation POST.",
+    "stale/expired IDs retire before one fresh generation POST.",
   );
 }
 
@@ -3169,6 +3222,21 @@ async function getInteraction(
   );
 }
 
+function isExpiredResumedInteractionError(error) {
+  const message = String(error?.message ?? error);
+
+  if (!message.startsWith("Gemini interaction GET HTTP 404:")) {
+    return false;
+  }
+
+  return (
+    /"code"\s*:\s*"not_found"/iu.test(message) ||
+    /"status"\s*:\s*"NOT_FOUND"/u.test(message) ||
+    /\bnot[_ -]?found\b/iu.test(message) ||
+    /requested entity was not found/iu.test(message)
+  );
+}
+
 async function resolveAcceptedInteraction(
   apiKey,
   initialInteraction,
@@ -4158,15 +4226,34 @@ async function resumePendingInteraction({
     dependencies.resolveAcceptedInteraction ??
     resolveAcceptedInteraction;
 
-  const generated = await resolveInteraction(
-    apiKey,
-    {
-      id: String(entry.interactionId),
-      status: "in_progress",
-      steps: [],
-    },
-    voice,
-  );
+  let generated;
+
+  try {
+    generated = await resolveInteraction(
+      apiKey,
+      {
+        id: String(entry.interactionId),
+        status: "in_progress",
+        steps: [],
+      },
+      voice,
+    );
+  } catch (error) {
+    if (!isExpiredResumedInteractionError(error)) {
+      throw error;
+    }
+
+    await unlink(pendingFile).catch(() => {});
+
+    console.log(
+      "Dual-voice expired pending Interaction retired: " +
+      `${path.relative(outRoot, wav).split(path.sep).join("/")}; ` +
+      `interactionId=${entry.interactionId}; provider=404/not_found; ` +
+      "allowing one fresh generation POST.",
+    );
+
+    return null;
+  }
 
   if (!generated) {
     throw new Error(
@@ -4838,16 +4925,34 @@ async function resumeSegmentPendingInteraction({
     `windows=${nextPollWindowsUsed}/${MAX_PENDING_INTERACTION_POLL_WINDOWS}.`,
   );
 
-  const generated =
-    await resolveAcceptedInteraction(
-      apiKey,
-      {
-        id: String(pending.interactionId),
-        status: "in_progress",
-        steps: [],
-      },
-      voice,
+  let generated;
+
+  try {
+    generated =
+      await resolveAcceptedInteraction(
+        apiKey,
+        {
+          id: String(pending.interactionId),
+          status: "in_progress",
+          steps: [],
+        },
+        voice,
+      );
+  } catch (error) {
+    if (!isExpiredResumedInteractionError(error)) {
+      throw error;
+    }
+
+    await unlink(files.pending).catch(() => {});
+
+    console.log(
+      "Dual-voice expired segment Interaction retired: " +
+      `${relativePath}; interactionId=${pending.interactionId}; ` +
+      "provider=404/not_found; allowing one fresh generation POST.",
     );
+
+    return null;
+  }
 
   if (!generated) {
     throw new Error(
