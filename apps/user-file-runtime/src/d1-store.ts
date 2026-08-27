@@ -74,4 +74,21 @@ export class D1JobStore {
       )
       .run();
   }
+
+  async setSourceKey(
+    jobId: string,
+    sourceKey: string,
+  ) {
+    await this.db
+      .prepare(`
+        UPDATE user_file_jobs
+        SET source_key = ?
+        WHERE id = ?
+      `)
+      .bind(
+        sourceKey,
+        jobId,
+      )
+      .run();
+  }
 }
