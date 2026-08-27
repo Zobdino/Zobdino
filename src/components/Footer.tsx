@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Github } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 
 import { useLocale } from "@/components/LocaleProvider";
 
@@ -42,7 +42,7 @@ export default function Footer() {
               rel="noreferrer"
               className="inline-flex items-center gap-2"
             >
-              <Github size={15} /> GitHub
+              <ExternalLink size={15} /> GitHub
             </a>
           </div>
         </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Github, Menu, Moon, Sun, X } from "lucide-react";
+import { ExternalLink, Menu, Moon, Sun, X } from "lucide-react";
 import { useState } from "react";
 
 import { useLocale } from "@/components/LocaleProvider";
@@ -39,7 +39,7 @@ export default function Header() {
             rel="noreferrer"
             className="inline-flex items-center gap-1.5"
           >
-            <Github size={16} />
+            <ExternalLink size={16} />
             {labels.github}
           </a>
         </nav>
