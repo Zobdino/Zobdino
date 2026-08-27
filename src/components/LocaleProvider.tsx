@@ -57,7 +57,7 @@ export function LocaleProvider({
   const locale = useSyncExternalStore(
     subscribeLocale,
     getStoredLocale,
-    () => "fa",
+    (): Locale => "fa",
   );
 
   useEffect(() => {

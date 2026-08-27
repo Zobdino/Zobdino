@@ -67,7 +67,7 @@ export function ThemeProvider({
   const theme = useSyncExternalStore(
     subscribeTheme,
     getStoredTheme,
-    () => "system",
+    (): Theme => "system",
   );
 
   useEffect(() => {
