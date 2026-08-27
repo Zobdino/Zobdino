@@ -30,7 +30,8 @@
     "voice:lab:validate": "node scripts/voice-lab.mjs --mode validate",
     "voice:selected:validate": "node scripts/selected-voice-render.mjs --mode validate",
     "voice:dual:resume:validate": "node scripts/dual-voice-resume-seed.mjs --self-test && node scripts/dual-voice-render.mjs --mode validate --batch batch-a-atomic --out .dual-voice-validate",
-    "check:mojibake": "node scripts/check-mojibake.mjs"
+    "check:mojibake": "node scripts/check-mojibake.mjs",
+    "pipeline:user-files:validate": "node --experimental-strip-types packages/ai-pipeline/src/user-files/self-test.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",
