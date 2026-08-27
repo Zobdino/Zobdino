@@ -4,7 +4,7 @@ export interface RuntimeEnv {
   ZOBDINO_UPLOADS: {
     put(
       key: string,
-      value: ArrayBuffer,
+      value: ArrayBuffer | Uint8Array,
       options?: {
         httpMetadata?: {
           contentType?: string;
