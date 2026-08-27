@@ -136,7 +136,7 @@ export default function AboutPage() {
         </p>
 
         <Link
-          href="https://github.com/AmirMotefaker/KetabCast"
+          href="https://github.com/Zobdino/Zobdino"
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-2 rounded-full bg-gray-100 text-gray-950 px-6 py-3 font-bold hover:bg-white transition"
