@@ -1,0 +1,12 @@
+name = "zobdino-user-file-runtime"
+main = "src/worker.ts"
+compatibility_date = "2026-08-27"
+
+[[r2_buckets]]
+binding = "ZOBDINO_UPLOADS"
+bucket_name = "zobdino-user-uploads"
+
+[[d1_databases]]
+binding = "ZOBDINO_DB"
+database_name = "zobdino-user-file-jobs"
+database_id = "REPLACE_AFTER_CREATE"
