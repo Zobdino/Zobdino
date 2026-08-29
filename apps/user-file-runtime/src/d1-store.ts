@@ -6,6 +6,12 @@ import type {
   RuntimeEnv,
 } from "./types.ts";
 
+export interface StoredContentSection {
+  sectionIndex: number;
+  sourceRef: string;
+  text: string;
+}
+
 export class D1JobStore {
   constructor(
     private readonly db: RuntimeEnv["ZOBDINO_DB"],
@@ -75,20 +81,56 @@ export class D1JobStore {
       .run();
   }
 
-  async setSourceKey(
+  async replaceContent(
     jobId: string,
-    sourceKey: string,
+    sections: StoredContentSection[],
+    contentSha256: string,
   ) {
     await this.db
       .prepare(`
-        UPDATE user_file_jobs
-        SET source_key = ?
-        WHERE id = ?
+        DELETE FROM user_file_content
+        WHERE job_id = ?
       `)
-      .bind(
-        sourceKey,
-        jobId,
-      )
+      .bind(jobId)
       .run();
+
+    for (const section of sections) {
+      await this.db
+        .prepare(`
+          INSERT INTO user_file_content (
+            job_id,
+            section_index,
+            source_ref,
+            text_content,
+            content_sha256
+          )
+          VALUES (?, ?, ?, ?, ?)
+        `)
+        .bind(
+          jobId,
+          section.sectionIndex,
+          section.sourceRef,
+          section.text,
+          contentSha256,
+        )
+        .run();
+    }
+  }
+
+  async contentSummary(jobId: string) {
+    return this.db
+      .prepare(`
+        SELECT
+          COUNT(*) AS section_count,
+          COALESCE(SUM(LENGTH(text_content)), 0)
+            AS character_count
+        FROM user_file_content
+        WHERE job_id = ?
+      `)
+      .bind(jobId)
+      .first<{
+        section_count: number;
+        character_count: number;
+      }>();
   }
 }

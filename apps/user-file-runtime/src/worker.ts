@@ -1,6 +1,5 @@
 import {
   createUserFileJob,
-  extractInlineText,
   resolveExtractionStrategy,
   transitionJob,
 } from "../../../packages/ai-pipeline/src/user-files/index.ts";
@@ -30,8 +29,7 @@ function json(
       headers: {
         "content-type":
           "application/json; charset=utf-8",
-        "cache-control":
-          "no-store",
+        "cache-control": "no-store",
       },
     },
   );
@@ -78,9 +76,12 @@ function validVoice(
   ].includes(String(value));
 }
 
-async function sha256Hex(
-  bytes: ArrayBuffer,
+async function sha256Text(
+  value: string,
 ) {
+  const bytes =
+    new TextEncoder().encode(value);
+
   const digest =
     await crypto.subtle.digest(
       "SHA-256",
@@ -137,8 +138,7 @@ async function createJob(
 
   if (
     !Number.isSafeInteger(sizeBytes) ||
-    sizeBytes <= 0 ||
-    sizeBytes > 100 * 1024 * 1024
+    sizeBytes <= 0
   ) {
     return json(
       { error: "invalid-file-size" },
@@ -153,23 +153,24 @@ async function createJob(
     );
   }
 
-  const job = createUserFileJob({
-    ownerId,
-    mode: body.mode,
-    voice: body.voice,
-    source: {
-      fileName,
-      format: body.format,
-      mimeType:
-        body.mimeType
-          ? String(body.mimeType)
-          : undefined,
-      sizeBytes,
-      sha256,
-      rightsConfirmed:
-        body.rightsConfirmed === true,
-    },
-  });
+  const job =
+    createUserFileJob({
+      ownerId,
+      mode: body.mode,
+      voice: body.voice,
+      source: {
+        fileName,
+        format: body.format,
+        mimeType:
+          body.mimeType
+            ? String(body.mimeType)
+            : undefined,
+        sizeBytes,
+        sha256,
+        rightsConfirmed:
+          body.rightsConfirmed === true,
+      },
+    });
 
   const store =
     new D1JobStore(env.ZOBDINO_DB);
@@ -179,21 +180,22 @@ async function createJob(
   return json(
     {
       job,
+      ingestion: {
+        method: "POST",
+        path:
+          `/v1/jobs/${job.jobId}/content`,
+        model: "client-extracted-text",
+      },
       extractionStrategy:
         resolveExtractionStrategy(
           job.source.format,
         ),
-      upload: {
-        method: "PUT",
-        path:
-          `/v1/jobs/${job.jobId}/source`,
-      },
     },
     201,
   );
 }
 
-async function uploadSource(
+async function ingestContent(
   request: Request,
   env: RuntimeEnv,
   jobId: string,
@@ -221,59 +223,120 @@ async function uploadSource(
     );
   }
 
-  const payload =
-    await request.arrayBuffer();
+  const body =
+    await request.json() as {
+      contentSha256?: unknown;
+      sections?: unknown;
+    };
+
+  if (!Array.isArray(body.sections)) {
+    return json(
+      { error: "sections-required" },
+      400,
+    );
+  }
 
   if (
-    payload.byteLength !==
-    job.source.sizeBytes
+    body.sections.length === 0 ||
+    body.sections.length > 128
+  ) {
+    return json(
+      { error: "invalid-section-count" },
+      400,
+    );
+  }
+
+  const sections =
+    body.sections.map(
+      (raw, index) => {
+        const item =
+          raw as Record<string, unknown>;
+
+        return {
+          sectionIndex:
+            Number(item.sectionIndex ?? index),
+          sourceRef:
+            String(
+              item.sourceRef ??
+              `section:${index + 1}`,
+            ),
+          text:
+            String(item.text ?? "").trim(),
+        };
+      },
+    );
+
+  if (
+    sections.some(
+      (section) =>
+        !Number.isSafeInteger(
+          section.sectionIndex,
+        ) ||
+        section.sectionIndex < 0 ||
+        !section.text ||
+        section.text.length > 24000,
+    )
+  ) {
+    return json(
+      { error: "invalid-section" },
+      400,
+    );
+  }
+
+  const characterCount =
+    sections.reduce(
+      (sum, section) =>
+        sum + section.text.length,
+      0,
+    );
+
+  if (
+    characterCount <= 0 ||
+    characterCount > 1000000
+  ) {
+    return json(
+      { error: "content-size-limit" },
+      413,
+    );
+  }
+
+  const canonicalText =
+    sections
+      .sort(
+        (a, b) =>
+          a.sectionIndex -
+          b.sectionIndex,
+      )
+      .map(
+        (section) =>
+          `${section.sectionIndex}:${section.sourceRef}\n${section.text}`,
+      )
+      .join("\n\n");
+
+  const actualSha256 =
+    await sha256Text(
+      canonicalText,
+    );
+
+  const expectedSha256 =
+    String(
+      body.contentSha256 ?? "",
+    )
+      .trim()
+      .toLowerCase();
+
+  if (
+    expectedSha256 &&
+    expectedSha256 !== actualSha256
   ) {
     return json(
       {
-        error: "size-mismatch",
-        expected: job.source.sizeBytes,
-        actual: payload.byteLength,
+        error:
+          "content-sha256-mismatch",
       },
       400,
     );
   }
-
-  const digest =
-    await sha256Hex(payload);
-
-  if (digest !== job.source.sha256) {
-    return json(
-      {
-        error: "sha256-mismatch",
-      },
-      400,
-    );
-  }
-
-  const sourceKey =
-    `private/${job.ownerId}/${job.jobId}/source`;
-
-  await env.ZOBDINO_UPLOADS.put(
-    sourceKey,
-    payload,
-    {
-      httpMetadata: {
-        contentType:
-          job.source.mimeType ??
-          "application/octet-stream",
-      },
-      customMetadata: {
-        ownerId: job.ownerId,
-        jobId: job.jobId,
-        sha256: digest,
-      },
-    },
-  );
-
-  await store.setSourceKey(
-    job.jobId,
-    sourceKey,
-  );
 
   job = transitionJob(
     job,
@@ -282,71 +345,6 @@ async function uploadSource(
 
   await store.save(job);
 
-  return json({
-    jobId: job.jobId,
-    stage: job.stage,
-    sourceStored: true,
-  });
-}
-
-async function extractSource(
-  env: RuntimeEnv,
-  jobId: string,
-) {
-  const store =
-    new D1JobStore(env.ZOBDINO_DB);
-
-  let job =
-    await store.get(jobId);
-
-  if (!job) {
-    return json(
-      { error: "job-not-found" },
-      404,
-    );
-  }
-
-  if (job.stage !== "validating") {
-    return json(
-      {
-        error: "invalid-stage",
-        stage: job.stage,
-      },
-      409,
-    );
-  }
-
-  const strategy =
-    resolveExtractionStrategy(
-      job.source.format,
-    );
-
-  if (strategy !== "inline-text") {
-    return json(
-      {
-        error:
-          "dedicated-extractor-required",
-        strategy,
-      },
-      409,
-    );
-  }
-
-  const sourceKey =
-    `private/${job.ownerId}/${job.jobId}/source`;
-
-  const object =
-    await env.ZOBDINO_UPLOADS.get(
-      sourceKey,
-    );
-
-  if (!object) {
-    return json(
-      { error: "source-not-found" },
-      404,
-    );
-  }
-
   job = transitionJob(
     job,
     "extracting",
@@ -354,35 +352,10 @@ async function extractSource(
 
   await store.save(job);
 
-  const bytes =
-    new Uint8Array(
-      await object.arrayBuffer(),
-    );
-
-  const extraction =
-    extractInlineText(
-      job.source,
-      bytes,
-    );
-
-  const extractionKey =
-    `private/${job.ownerId}/${job.jobId}/extraction.json`;
-
-  await env.ZOBDINO_UPLOADS.put(
-    extractionKey,
-    new TextEncoder().encode(
-      JSON.stringify(extraction),
-    ),
-    {
-      httpMetadata: {
-        contentType:
-          "application/json; charset=utf-8",
-      },
-      customMetadata: {
-        ownerId: job.ownerId,
-        jobId: job.jobId,
-      },
-    },
+  await store.replaceContent(
+    job.jobId,
+    sections,
+    actualSha256,
   );
 
   job = transitionJob(
@@ -395,13 +368,12 @@ async function extractSource(
   return json({
     jobId: job.jobId,
     stage: job.stage,
-    strategy,
-    extraction: {
-      sections:
-        extraction.sections.length,
-      characterCount:
-        extraction.characterCount,
-    },
+    storage: "d1-text-content",
+    sectionCount:
+      sections.length,
+    characterCount,
+    contentSha256:
+      actualSha256,
   });
 }
 
@@ -421,6 +393,10 @@ const worker = {
         ok: true,
         service:
           "zobdino-user-file-runtime",
+        storage:
+          "d1-only",
+        r2:
+          false,
       });
     }
 
@@ -441,34 +417,19 @@ const worker = {
       );
     }
 
-    const sourceMatch =
+    const contentMatch =
       url.pathname.match(
-        /^\/v1\/jobs\/([^/]+)\/source$/,
-      );
-
-    if (
-      request.method === "PUT" &&
-      sourceMatch?.[1]
-    ) {
-      return uploadSource(
-        request,
-        env,
-        sourceMatch[1],
-      );
-    }
-
-    const extractMatch =
-      url.pathname.match(
-        /^\/v1\/jobs\/([^/]+)\/extract$/,
+        /^\/v1\/jobs\/([^/]+)\/content$/,
       );
 
     if (
       request.method === "POST" &&
-      extractMatch?.[1]
+      contentMatch?.[1]
     ) {
-      return extractSource(
+      return ingestContent(
+        request,
         env,
-        extractMatch[1],
+        contentMatch[1],
       );
     }
 
@@ -498,7 +459,15 @@ const worker = {
         );
       }
 
-      return json({ job });
+      const content =
+        await store.contentSummary(
+          job.jobId,
+        );
+
+      return json({
+        job,
+        content,
+      });
     }
 
     return json(
