@@ -22,10 +22,10 @@ export default function Footer() {
             <Image
               src="/brand/zobdino-logo.png"
               alt={fa ? "زبدینو" : "Zobdino"}
-              width={200}
-              height={64}
-              sizes="160px"
-              className="h-11 w-auto max-w-[160px] object-contain"
+              width={260}
+              height={104}
+              sizes="220px"
+              className="h-20 w-auto max-w-[220px] object-contain"
             />
           </Link>
           <p className="mt-4 max-w-xl text-sm leading-7 text-black/60 dark:text-white/60">

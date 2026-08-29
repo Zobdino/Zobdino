@@ -33,11 +33,11 @@ export default function Header() {
           <Image
             src="/brand/zobdino-logo.png"
             alt={fa ? "زبدینو" : "Zobdino"}
-            width={180}
-            height={56}
+            width={240}
+            height={96}
             priority
-            sizes="(max-width: 768px) 132px, 160px"
-            className="h-9 w-auto max-w-[132px] object-contain md:h-10 md:max-w-[160px]"
+            sizes="(max-width: 768px) 160px, 220px"
+            className="h-14 w-auto max-w-[160px] object-contain md:h-16 md:max-w-[220px]"
           />
         </Link>
 
