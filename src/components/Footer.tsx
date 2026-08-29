@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
 
@@ -13,10 +14,20 @@ export default function Footer() {
     <footer className="mt-20 border-t border-black/10 bg-black/[0.02] dark:border-white/10 dark:bg-white/[0.02]">
       <div className="mx-auto grid max-w-7xl gap-10 px-4 py-12 md:grid-cols-4 md:px-6">
         <div className="md:col-span-2">
-          <div className="flex items-center gap-3">
-            <img src="/brand/zobdino-mark.svg" alt="Zobdino" className="h-10 w-10" />
-            <span className="text-xl font-black">Zobdino</span>
-          </div>
+          <Link
+            href="/"
+            className="inline-flex items-center"
+            aria-label={fa ? "صفحه اصلی زبدینو" : "Zobdino home"}
+          >
+            <Image
+              src="/brand/zobdino-logo.png"
+              alt={fa ? "زبدینو" : "Zobdino"}
+              width={200}
+              height={64}
+              sizes="160px"
+              className="h-11 w-auto max-w-[160px] object-contain"
+            />
+          </Link>
           <p className="mt-4 max-w-xl text-sm leading-7 text-black/60 dark:text-white/60">
             {fa
               ? "زبدینو فایل‌های متنی و کتاب‌ها را به خلاصه هوشمند، نسخه صوتی و تجربه شنیداری ساختاریافته تبدیل می‌کند."
