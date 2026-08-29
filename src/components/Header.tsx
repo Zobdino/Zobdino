@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { ExternalLink, Menu, Moon, Sun, X } from "lucide-react";
 import { useState } from "react";
@@ -24,9 +25,20 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 border-b border-black/10 bg-white/80 backdrop-blur-xl dark:border-white/10 dark:bg-[#0b0b0f]/85">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 md:px-6">
-        <Link href="/" className="flex items-center gap-3">
-          <img src="/brand/zobdino-mark.svg" alt="Zobdino" className="h-9 w-9" />
-          <span className="text-xl font-black tracking-tight">Zobdino</span>
+        <Link
+          href="/"
+          className="inline-flex items-center"
+          aria-label={fa ? "صفحه اصلی زبدینو" : "Zobdino home"}
+        >
+          <Image
+            src="/brand/zobdino-logo.png"
+            alt={fa ? "زبدینو" : "Zobdino"}
+            width={240}
+            height={96}
+            priority
+            sizes="(max-width: 768px) 160px, 220px"
+            className="h-14 w-auto max-w-[160px] object-contain md:h-16 md:max-w-[220px]"
+          />
         </Link>
 
         <nav className="hidden items-center gap-7 text-sm font-semibold md:flex">

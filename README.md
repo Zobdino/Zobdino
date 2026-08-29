@@ -1,3 +1,6 @@
+<p align="center">
+  <img src="public/brand/zobdino-logo.png" alt="Zobdino" width="180" />
+</p>
 <div align="center">
 
 <img src="./docs/assets/zobdino-github-banner.svg" width="100%" alt="Zobdino — AI-powered Persian book summaries and audio learning" />

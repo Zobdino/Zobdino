@@ -17,7 +17,31 @@ export const metadata: Metadata = {
     "Zobdino turns documents and books into structured summaries, full audio, and intelligent listening experiences.",
   applicationName: "Zobdino",
   icons: {
-    icon: "/favicon.svg",
+    icon: [
+      {
+        url: "/favicon.png",
+        type: "image/png",
+        sizes: "48x48",
+      },
+      {
+        url: "/brand/zobdino-icon-192.png",
+        type: "image/png",
+        sizes: "192x192",
+      },
+      {
+        url: "/brand/zobdino-icon-512.png",
+        type: "image/png",
+        sizes: "512x512",
+      },
+    ],
+    apple: [
+      {
+        url: "/apple-touch-icon.png",
+        type: "image/png",
+        sizes: "180x180",
+      },
+    ],
+    shortcut: "/favicon.png",
   },
 };
 
