@@ -1,10 +1,6 @@
 name = "zobdino-user-file-runtime"
 main = "src/worker.ts"
-compatibility_date = "2026-08-27"
-
-[[r2_buckets]]
-binding = "ZOBDINO_UPLOADS"
-bucket_name = "zobdino-user-uploads"
+compatibility_date = "2026-08-29"
 
 [[d1_databases]]
 binding = "ZOBDINO_DB"
