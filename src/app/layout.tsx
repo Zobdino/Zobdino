@@ -17,7 +17,8 @@ export const metadata: Metadata = {
     "Zobdino turns documents and books into structured summaries, full audio, and intelligent listening experiences.",
   applicationName: "Zobdino",
   icons: {
-    icon: "/favicon.svg",
+    icon: "/favicon.png",
+    apple: "/apple-touch-icon.png",
   },
 };
 
