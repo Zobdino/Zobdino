@@ -6,3 +6,6 @@ compatibility_date = "2026-08-29"
 binding = "ZOBDINO_DB"
 database_name = "zobdino-user-file-jobs"
 database_id = "REPLACE_AFTER_CREATE"
+
+[vars]
+ZOBDINO_ALLOWED_ORIGINS = "https://zobdino.ir,https://www.zobdino.ir"

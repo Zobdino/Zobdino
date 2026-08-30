@@ -55,3 +55,11 @@ Next:
 - session ownership required before browser create/content/status routes are enabled
 - privileged `ZOBDINO_UPLOAD_TOKEN` remains server-only
 - migration and deployment remain manual production gates
+
+## Browser API
+
+- POST /v1/browser-sessions issues a short-lived capability.
+- POST /v1/jobs derives ownership from the validated session.
+- POST /v1/jobs/:jobId/content requires the owning session.
+- GET /v1/jobs/:jobId returns data only to the owning session.
+- Trusted clients continue to use the server-only bearer token.
