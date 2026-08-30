@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 
 import {
+  allowedBrowserOrigin,
+  newBrowserSession,
+  sessionUsable,
+  sha256Hex,
+} from "./browser-session.ts";
+
+import {
   createUserFileJob,
   extractInlineText,
   MemoryUserFileJobStore,
@@ -66,6 +73,18 @@ assert.equal(
   resolveExtractionStrategy("epub"),
   "existing-epub-extractor",
 );
+
+const origin = "https://zobdino.ir";
+assert.equal(allowedBrowserOrigin(origin, "https://zobdino.ir,https://www.zobdino.ir"), true);
+assert.equal(allowedBrowserOrigin("https://evil.example", "https://zobdino.ir"), false);
+
+const tokenHash = await sha256Hex("test-session-token");
+const now = new Date("2026-08-30T00:00:00.000Z");
+const session = newBrowserSession(origin, tokenHash, now);
+assert.equal(session.tokenSha256, tokenHash);
+assert.equal(sessionUsable(session, origin, now), true);
+assert.equal(sessionUsable(session, "https://evil.example", now), false);
+assert.equal(sessionUsable(session, origin, new Date("2026-08-30T00:16:00.000Z")), false);
 
 console.log(
   "Secure upload runtime foundation: PASS",

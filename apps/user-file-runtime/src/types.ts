@@ -1,5 +1,6 @@
 export interface RuntimeEnv {
   ZOBDINO_UPLOAD_TOKEN: string;
+  ZOBDINO_ALLOWED_ORIGINS?: string;
 
   ZOBDINO_DB: {
     prepare(sql: string): {
