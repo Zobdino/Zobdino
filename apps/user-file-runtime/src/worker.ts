@@ -2,12 +2,15 @@ import {
   allowedBrowserOrigin,
   newBrowserSession,
   randomSessionToken,
-  sessionUsable,
+  SESSION_REQUEST_LIMIT,
   sha256Hex,
 } from "./browser-session.ts";
 import { BrowserSessionStore } from "./browser-session-store.ts";
 import trustedWorker from "./trusted-worker.ts";
 import type { RuntimeEnv } from "./types.ts";
+
+const SESSION_ISSUANCE_WINDOW_MS = 5 * 60 * 1000;
+const SESSION_ISSUANCE_LIMIT = 8;
 
 function corsHeaders(origin: string) {
   return {
@@ -93,11 +96,29 @@ const worker = {
 
     const sessions = new BrowserSessionStore(env.ZOBDINO_DB);
     if (request.method === "POST" && url.pathname === "/v1/browser-sessions") {
+      const now = new Date();
+      const issuedSince = new Date(now.getTime() - SESSION_ISSUANCE_WINDOW_MS).toISOString();
+      const recentSessions = await sessions.countIssuedSince(allowedOrigin, issuedSince);
+      if (recentSessions >= SESSION_ISSUANCE_LIMIT) {
+        return json(
+          {
+            error: "session-issuance-limit",
+            retryAfterSeconds: Math.ceil(SESSION_ISSUANCE_WINDOW_MS / 1000),
+          },
+          429,
+          allowedOrigin,
+        );
+      }
+
       const token = randomSessionToken();
-      const session = newBrowserSession(allowedOrigin, await sha256Hex(token));
+      const session = newBrowserSession(allowedOrigin, await sha256Hex(token), now);
       await sessions.create(session);
       return json(
-        { token, expiresAt: session.expiresAt, requestLimit: 64 },
+        {
+          token,
+          expiresAt: session.expiresAt,
+          requestLimit: SESSION_REQUEST_LIMIT,
+        },
         201,
         allowedOrigin,
       );
@@ -107,12 +128,22 @@ const worker = {
     if (!/^[a-f0-9]{64}$/.test(token)) {
       return json({ error: "invalid-session" }, 401, allowedOrigin);
     }
+
     const session = await sessions.findByTokenHash(await sha256Hex(token));
-    if (!session || !sessionUsable(session, allowedOrigin)) {
+    if (!session) {
       return json({ error: "expired-or-invalid-session" }, 401, allowedOrigin);
     }
 
-    await sessions.consume(session.id);
+    const consumed = await sessions.consumeIfUsable(
+      session.id,
+      allowedOrigin,
+      new Date().toISOString(),
+      SESSION_REQUEST_LIMIT,
+    );
+    if (!consumed) {
+      return json({ error: "expired-or-invalid-session" }, 401, allowedOrigin);
+    }
+
     const ownerId = "browser:" + session.id;
 
     if (request.method === "POST" && url.pathname === "/v1/jobs") {
