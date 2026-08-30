@@ -46,3 +46,12 @@ First browser-ingestion slice:
 Next:
 - PDF browser extraction
 - EPUB browser extraction
+
+## Browser-safe session contract
+
+- short-lived opaque session tokens; only SHA-256 digests are stored
+- exact-origin allowlist through `ZOBDINO_ALLOWED_ORIGINS`
+- fifteen-minute expiry and bounded request budget
+- session ownership required before browser create/content/status routes are enabled
+- privileged `ZOBDINO_UPLOAD_TOKEN` remains server-only
+- migration and deployment remain manual production gates
