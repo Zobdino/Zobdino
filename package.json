@@ -32,7 +32,7 @@
     "voice:dual:resume:validate": "node scripts/dual-voice-resume-seed.mjs --self-test && node scripts/dual-voice-render.mjs --mode validate --batch batch-a-atomic --out .dual-voice-validate",
     "check:mojibake": "node scripts/check-mojibake.mjs",
     "pipeline:user-files:validate": "node --experimental-strip-types packages/ai-pipeline/src/user-files/self-test.ts",
-    "runtime:user-files:validate": "node --experimental-strip-types apps/user-file-runtime/src/self-test.ts"
+    "runtime:user-files:validate": "node --experimental-strip-types apps/user-file-runtime/src/self-test.ts && node --experimental-strip-types apps/user-file-runtime/src/gateway-self-test.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",
