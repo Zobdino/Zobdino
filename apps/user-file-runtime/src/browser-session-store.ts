@@ -11,6 +11,16 @@ interface SessionRow {
   revoked_at: string | null;
 }
 
+interface D1RunResult {
+  meta?: {
+    changes?: number;
+  };
+}
+
+interface CountRow {
+  count: number;
+}
+
 function toRecord(row: SessionRow): BrowserSessionRecord {
   return {
     id: row.id,
@@ -42,9 +52,23 @@ export class BrowserSessionStore {
     return row ? toRecord(row) : null;
   }
 
-  async consume(id: string) {
-    await this.db.prepare(
-      "UPDATE browser_ingestion_sessions SET request_count = request_count + 1 WHERE id = ?",
-    ).bind(id).run();
+  async countIssuedSince(origin: string, createdSince: string) {
+    const row = await this.db.prepare(
+      "SELECT COUNT(*) AS count FROM browser_ingestion_sessions WHERE origin = ? AND created_at >= ?",
+    ).bind(origin, createdSince).first<CountRow>();
+    return Number(row?.count ?? 0);
+  }
+
+  async consumeIfUsable(
+    id: string,
+    origin: string,
+    nowIso: string,
+    requestLimit: number,
+  ) {
+    const result = await this.db.prepare(
+      "UPDATE browser_ingestion_sessions SET request_count = request_count + 1 WHERE id = ? AND origin = ? AND revoked_at IS NULL AND expires_at > ? AND request_count < ?",
+    ).bind(id, origin, nowIso, requestLimit).run() as D1RunResult;
+
+    return Number(result.meta?.changes ?? 0) === 1;
   }
 }
