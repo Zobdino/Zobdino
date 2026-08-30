@@ -353,6 +353,8 @@ Next.js App Router, TS, Tailwind v4, تم تاریک/بنفش, RTL/وزیرمت�
 
 ### 🔨 v0.3.0 — AI Pipeline
 - [x] قرارداد پایه `packages/ai-pipeline`: فرمت‌ها، Full/Summary/Both، حقوق/DRM، مسیر استخراج و lifecycle پردازش (#100)
+- [x] Runtime دریافت متن مبتنی بر Cloudflare Worker + D1 و بدون R2 (#171)
+- [ ] رابط مرورگری امن TXT/Markdown با بخش‌بندی و SHA-256؛ اتصال شبکه فقط پس از آماده‌شدن capability عمومی محدود (#173)
 - [ ] تکمیل `packages/ai-pipeline` با extractorهای واقعی، Node worker و Queue
 - [x] extractor امن EPUB و PDF دیجیتال + تشخیص مسیر OCR برای PDF کم‌متن (#104)
 - [ ] تکمیل ورودی P0: OCR واقعی PDF اسکن‌شده، DOCX، TXT/Markdown/HTML
