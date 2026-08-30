@@ -18,13 +18,19 @@ export default function UserFileIngestion() {
 
   async function prepare(file: File | undefined) {
     if (!file) return;
+
+    setRights(false);
+    setReceipt(null);
+    setMessage("");
+    setFileName(file.name);
+
     if (!supportedTextFile(file)) {
       setStatus("error"); setMessage("فعلاً فقط فایل‌های TXT و Markdown پشتیبانی می‌شوند."); return;
     }
     if (file.size > 1_000_000) {
       setStatus("error"); setMessage("حجم متن برای نسخه آزمایشی باید کمتر از یک مگابایت باشد."); return;
     }
-    setStatus("reading"); setMessage(""); setFileName(file.name);
+    setStatus("reading");
     try {
       const text = await file.text();
       const sections = sectionText(text);
