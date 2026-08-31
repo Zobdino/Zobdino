@@ -183,6 +183,10 @@ const browserGenerate = await call(`/v1/jobs/${jobId}/generate`, {
   method: "POST", token, body: {},
 });
 assert.equal(browserGenerate.status, 404);
+const browserFinalize = await call(`/v1/jobs/${jobId}/finalize`, {
+  method: "POST", token, body: {},
+});
+assert.equal(browserFinalize.status, 404);
 
 const fullAudioGeneration = await trustedCall(`/v1/jobs/${jobId}/generate`);
 assert.equal(fullAudioGeneration.status, 200);
@@ -208,6 +212,36 @@ assert.equal(
   "verified",
 );
 
+const prematureFinalize = await trustedCall(`/v1/jobs/${jobId}/finalize`);
+assert.equal(prematureFinalize.status, 409);
+
+const summaryAudioGeneration = await trustedCall(`/v1/jobs/${jobId}/generate`);
+assert.equal(summaryAudioGeneration.status, 200);
+const summaryAudioPayload = await summaryAudioGeneration.json() as {
+  job: { stage: string; assets: Array<{ kind: string; status: string }> };
+};
+assert.equal(summaryAudioPayload.job.stage, "quality-check");
+assert.equal(
+  summaryAudioPayload.job.assets.find((asset) => asset.kind === "summary-audio")?.status,
+  "verified",
+);
+
+const finalizeResponse = await trustedCall(`/v1/jobs/${jobId}/finalize`);
+assert.equal(finalizeResponse.status, 200);
+const finalizedPayload = await finalizeResponse.json() as {
+  job: { stage: string; privacy: string; assets: Array<{ kind: string; status: string }> };
+  finalization: { library: string; publicationApproved: boolean; ready: boolean };
+};
+assert.equal(finalizedPayload.job.stage, "ready");
+assert.equal(finalizedPayload.job.privacy, "private");
+assert.equal(finalizedPayload.finalization.library, "private");
+assert.equal(finalizedPayload.finalization.publicationApproved, false);
+assert.equal(finalizedPayload.finalization.ready, true);
+
+const repeatedFinalize = await trustedCall(`/v1/jobs/${jobId}/finalize`);
+assert.equal(repeatedFinalize.status, 200);
+assert.equal((await repeatedFinalize.json() as { job: { stage: string } }).job.stage, "ready");
+
 const statusResponse = await call(`/v1/jobs/${jobId}`, { token });
 assert.equal(statusResponse.status, 200);
 const statusPayload = await statusResponse.json() as {
@@ -215,7 +249,7 @@ const statusPayload = await statusResponse.json() as {
   content: { section_count: number };
 };
 assert.match(statusPayload.job.ownerId, /^browser:/);
-assert.equal(statusPayload.job.stage, "summary-audio");
+assert.equal(statusPayload.job.stage, "ready");
 assert.equal(statusPayload.job.assets.length, 5);
 assert.equal(statusPayload.content.section_count, 1);
 
