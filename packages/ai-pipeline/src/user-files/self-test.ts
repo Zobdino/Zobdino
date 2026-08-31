@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   checkpointJob,
   createUserFileJob,
+  finalizeUserFileJob,
   orchestrateNormalizedUserFile,
   resumeFromQuota,
   runUserFileGeneration,
@@ -18,120 +19,63 @@ const source = {
   rightsConfirmed: true,
 };
 
-let job = createUserFileJob({
-  ownerId: "user-test",
-  source,
-  now: "2026-08-27T00:00:00.000Z",
-  jobId: "job-test",
-});
+let job = createUserFileJob({ ownerId: "user-test", source, jobId: "job-test" });
 job = transitionJob(job, "validating");
 job = transitionJob(job, "extracting");
 job = checkpointJob(job, "extract-checkpoint-sha");
 job = transitionJob(job, "normalizing");
-job = orchestrateNormalizedUserFile(job, "2026-08-27T00:05:00.000Z");
+job = orchestrateNormalizedUserFile(job);
 
-assert.equal(job.stage, "full-audio");
-assert.equal(job.assets.length, 5);
+for (const expectedStage of ["full-audio", "summarizing", "summary-audio"] as const) {
+  assert.equal(job.stage, expectedStage);
+  job = await runUserFileGeneration(job, {
+    async run(unit) {
+      assert.equal(unit.stage, expectedStage);
+      return {
+        status: "verified" as const,
+        sha256: expectedStage[0]!.repeat(64),
+        uri: `memory://${expectedStage}`,
+        bytes: 1024,
+      };
+    },
+  });
+}
+assert.equal(job.stage, "quality-check");
+job = finalizeUserFileJob(job);
+assert.equal(job.stage, "ready");
+assert.equal(job.privacy, "private");
+assert.ok(job.checkpoints.some((checkpoint) => checkpoint.digest?.startsWith("private-library-ready:v1")));
+assert.deepEqual(finalizeUserFileJob(job), job);
 
-let calls = 0;
-job = await runUserFileGeneration(job, {
-  async run(unit) {
-    calls += 1;
-    assert.equal(unit.stage, "full-audio");
-    return {
-      status: "verified" as const,
-      sha256: "f".repeat(64),
-      uri: "memory://full-audio",
-      bytes: 2048,
-    };
-  },
-}, "2026-08-27T00:06:00.000Z");
+let blocked = createUserFileJob({ ownerId: "blocked", source, mode: "summary-podcast", jobId: "job-blocked" });
+blocked = transitionJob(blocked, "validating");
+blocked = transitionJob(blocked, "extracting");
+blocked = transitionJob(blocked, "normalizing");
+blocked = orchestrateNormalizedUserFile(blocked);
+blocked = await runUserFileGeneration(blocked, { async run() { return { status: "verified" as const }; } });
+blocked = transitionJob(blocked, "quality-check");
+assert.throws(() => finalizeUserFileJob(blocked), /summary-audio/);
 
-assert.equal(calls, 1);
-assert.equal(job.stage, "summarizing");
-assert.equal(job.assets.find((asset) => asset.kind === "full-audio")?.status, "verified");
-assert.ok(job.checkpoints.some((checkpoint) => checkpoint.digest?.includes("full-audio:v1:verified")));
-
-job = await runUserFileGeneration(job, {
-  async run(unit) {
-    assert.equal(unit.stage, "summarizing");
-    return {
-      status: "verified" as const,
-      sha256: "e".repeat(64),
-      uri: "memory://summary",
-      bytes: 512,
-    };
-  },
-}, "2026-08-27T00:07:00.000Z");
-assert.equal(job.stage, "summary-audio");
-assert.equal(job.assets.find((asset) => asset.kind === "summary")?.status, "verified");
-
-let quotaJob = createUserFileJob({
-  ownerId: "quota-user",
-  source,
-  mode: "both",
-  jobId: "job-quota",
-});
+let quotaJob = createUserFileJob({ ownerId: "quota-user", source, mode: "summary-podcast", jobId: "job-quota" });
 quotaJob = transitionJob(quotaJob, "validating");
 quotaJob = transitionJob(quotaJob, "extracting");
 quotaJob = transitionJob(quotaJob, "normalizing");
 quotaJob = orchestrateNormalizedUserFile(quotaJob);
-
-let quotaCalls = 0;
+quotaJob = await runUserFileGeneration(quotaJob, { async run() { return { status: "verified" as const }; } });
+assert.equal(quotaJob.stage, "summary-audio");
 quotaJob = await runUserFileGeneration(quotaJob, {
   async run() {
-    quotaCalls += 1;
-    return {
-      status: "quota-paused" as const,
-      provider: "gemini",
-      operation: "tts",
-      retryAfterSeconds: 60,
-    };
+    return { status: "quota-paused" as const, provider: "test", operation: "summary-tts", retryAfterSeconds: 30 };
   },
-}, "2026-08-27T00:08:00.000Z");
-
+});
 assert.equal(quotaJob.stage, "quota-paused");
-assert.equal(quotaJob.quotaPause?.resumeStage, "full-audio");
-assert.equal(quotaCalls, 1);
+assert.equal(quotaJob.quotaPause?.resumeStage, "summary-audio");
+quotaJob = resumeFromQuota(quotaJob);
+assert.equal(quotaJob.stage, "summary-audio");
+quotaJob = await runUserFileGeneration(quotaJob, { async run() { return { status: "verified" as const }; } });
+assert.equal(quotaJob.stage, "quality-check");
+assert.equal(finalizeUserFileJob(quotaJob).stage, "ready");
 
-quotaJob = resumeFromQuota(quotaJob, "2026-08-27T00:09:00.000Z");
-quotaJob = await runUserFileGeneration(quotaJob, {
-  async run() {
-    return {
-      status: "verified" as const,
-      sha256: "d".repeat(64),
-      uri: "memory://resumed-full-audio",
-    };
-  },
-});
-assert.equal(quotaJob.stage, "summarizing");
-
-let idempotentCalls = 0;
-const fullAudioCheckpointed = {
-  ...orchestrateNormalizedUserFile(
-    transitionJob(
-      transitionJob(
-        transitionJob(createUserFileJob({ ownerId: "idempotent", source, jobId: "job-idempotent" }), "validating"),
-        "extracting",
-      ),
-      "normalizing",
-    ),
-  ),
-};
-const completed = await runUserFileGeneration(fullAudioCheckpointed, {
-  async run() {
-    idempotentCalls += 1;
-    return { status: "verified" as const };
-  },
-});
-assert.equal(idempotentCalls, 1);
-assert.equal(completed.stage, "summarizing");
-
-assert.throws(() =>
-  createUserFileJob({
-    ownerId: "user-test",
-    source: { ...source, rightsConfirmed: false },
-  }),
-);
+assert.throws(() => createUserFileJob({ ownerId: "user-test", source: { ...source, rightsConfirmed: false } }));
 
 console.log("User-file autonomous pipeline contract: PASS");
