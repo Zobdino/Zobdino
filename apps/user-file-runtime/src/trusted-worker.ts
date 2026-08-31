@@ -2,14 +2,16 @@ import {
   createUserFileJob,
   orchestrateNormalizedUserFile,
   resolveExtractionStrategy,
+  runUserFileGeneration,
   transitionJob,
 } from "../../../packages/ai-pipeline/src/user-files/index.ts";
 
 import type {
+  GenerationAdapter,
   UserFileFormat,
   UserFileMode,
   UserFileVoice,
-} from "../../../packages/ai-pipeline/src/user-files/contracts.ts";
+} from "../../../packages/ai-pipeline/src/user-files/index.ts";
 
 import { D1JobStore } from "./d1-store.ts";
 import type { RuntimeEnv } from "./types.ts";
@@ -63,15 +65,11 @@ async function createJob(request: Request, env: RuntimeEnv) {
   const sizeBytes = Number(body.sizeBytes ?? 0);
   const sha256 = String(body.sha256 ?? "").trim().toLowerCase();
 
-  if (!ownerId || !fileName) {
-    return json({ error: "missing-identity-or-filename" }, 400);
-  }
+  if (!ownerId || !fileName) return json({ error: "missing-identity-or-filename" }, 400);
   if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) {
     return json({ error: "invalid-file-size" }, 400);
   }
-  if (!/^[a-f0-9]{64}$/.test(sha256)) {
-    return json({ error: "invalid-sha256" }, 400);
-  }
+  if (!/^[a-f0-9]{64}$/.test(sha256)) return json({ error: "invalid-sha256" }, 400);
 
   const job = createUserFileJob({
     ownerId,
@@ -106,9 +104,7 @@ async function ingestContent(request: Request, env: RuntimeEnv, jobId: string) {
   let job = await store.get(jobId);
 
   if (!job) return json({ error: "job-not-found" }, 404);
-  if (job.stage !== "received") {
-    return json({ error: "invalid-stage", stage: job.stage }, 409);
-  }
+  if (job.stage !== "received") return json({ error: "invalid-stage", stage: job.stage }, 409);
 
   const body = await request.json() as { contentSha256?: unknown; sections?: unknown };
   if (!Array.isArray(body.sections)) return json({ error: "sections-required" }, 400);
@@ -177,9 +173,7 @@ async function advanceJob(env: RuntimeEnv, jobId: string) {
     const alreadyPlanned = job.checkpoints.some(
       (checkpoint) => checkpoint.stage === "planning" && checkpoint.digest === "user-file-output-plan:v1",
     );
-    if (!alreadyPlanned) {
-      return json({ error: "invalid-stage", stage: job.stage }, 409);
-    }
+    if (!alreadyPlanned) return json({ error: "invalid-stage", stage: job.stage }, 409);
   }
 
   const advanced = orchestrateNormalizedUserFile(job);
@@ -190,6 +184,45 @@ async function advanceJob(env: RuntimeEnv, jobId: string) {
       externalProviderCalls: false,
       nextStage: advanced.stage,
       plannedAssetCount: advanced.assets.length,
+    },
+  });
+}
+
+function offlineGenerationAdapter(): GenerationAdapter {
+  return {
+    async run(unit) {
+      const sha256 = await sha256Text(`offline-generation:${unit.id}`);
+      return {
+        status: "verified",
+        sha256,
+        uri: `internal://offline-test/${encodeURIComponent(unit.id)}`,
+        bytes: 1,
+      };
+    },
+  };
+}
+
+async function generateJob(env: RuntimeEnv, jobId: string) {
+  if (env.ZOBDINO_GENERATION_MODE !== "offline-test") {
+    return json({ error: "generation-provider-not-configured" }, 503);
+  }
+
+  const store = new D1JobStore(env.ZOBDINO_DB);
+  const job = await store.get(jobId);
+  if (!job) return json({ error: "job-not-found" }, 404);
+  if (job.stage !== "full-audio" && job.stage !== "summarizing") {
+    return json({ error: "invalid-stage", stage: job.stage }, 409);
+  }
+
+  const generated = await runUserFileGeneration(job, offlineGenerationAdapter());
+  await store.save(generated);
+
+  return json({
+    job: generated,
+    generation: {
+      mode: "offline-test",
+      externalProviderCalls: false,
+      nextStage: generated.stage,
     },
   });
 }
@@ -221,6 +254,11 @@ const worker = {
     const advanceMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/advance$/);
     if (request.method === "POST" && advanceMatch?.[1]) {
       return advanceJob(env, advanceMatch[1]);
+    }
+
+    const generateMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/generate$/);
+    if (request.method === "POST" && generateMatch?.[1]) {
+      return generateJob(env, generateMatch[1]);
     }
 
     const jobMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)$/);
