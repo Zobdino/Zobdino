@@ -1,4 +1,5 @@
 export * from "./contracts.ts";
+export * from "./generation-runner.ts";
 export * from "./ingestion.ts";
 export * from "./manifest.ts";
 export * from "./orchestrator.ts";
