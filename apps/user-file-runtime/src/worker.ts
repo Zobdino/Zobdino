@@ -35,9 +35,7 @@ function json(data: unknown, status: number, origin?: string) {
 
 function withCors(response: Response, origin: string) {
   const headers = new Headers(response.headers);
-  for (const [key, value] of Object.entries(corsHeaders(origin))) {
-    headers.set(key, value);
-  }
+  for (const [key, value] of Object.entries(corsHeaders(origin))) headers.set(key, value);
   headers.set("cache-control", "no-store");
   return new Response(response.body, {
     status: response.status,
@@ -100,28 +98,20 @@ const worker = {
       const issuedSince = new Date(now.getTime() - SESSION_ISSUANCE_WINDOW_MS).toISOString();
       const recentSessions = await sessions.countIssuedSince(allowedOrigin, issuedSince);
       if (recentSessions >= SESSION_ISSUANCE_LIMIT) {
-        return json(
-          {
-            error: "session-issuance-limit",
-            retryAfterSeconds: Math.ceil(SESSION_ISSUANCE_WINDOW_MS / 1000),
-          },
-          429,
-          allowedOrigin,
-        );
+        return json({
+          error: "session-issuance-limit",
+          retryAfterSeconds: Math.ceil(SESSION_ISSUANCE_WINDOW_MS / 1000),
+        }, 429, allowedOrigin);
       }
 
       const token = randomSessionToken();
       const session = newBrowserSession(allowedOrigin, await sha256Hex(token), now);
       await sessions.create(session);
-      return json(
-        {
-          token,
-          expiresAt: session.expiresAt,
-          requestLimit: SESSION_REQUEST_LIMIT,
-        },
-        201,
-        allowedOrigin,
-      );
+      return json({
+        token,
+        expiresAt: session.expiresAt,
+        requestLimit: SESSION_REQUEST_LIMIT,
+      }, 201, allowedOrigin);
     }
 
     const token = request.headers.get("x-zobdino-session")?.trim() ?? "";
@@ -130,9 +120,7 @@ const worker = {
     }
 
     const session = await sessions.findByTokenHash(await sha256Hex(token));
-    if (!session) {
-      return json({ error: "expired-or-invalid-session" }, 401, allowedOrigin);
-    }
+    if (!session) return json({ error: "expired-or-invalid-session" }, 401, allowedOrigin);
 
     const consumed = await sessions.consumeIfUsable(
       session.id,
@@ -140,25 +128,20 @@ const worker = {
       new Date().toISOString(),
       SESSION_REQUEST_LIMIT,
     );
-    if (!consumed) {
-      return json({ error: "expired-or-invalid-session" }, 401, allowedOrigin);
-    }
+    if (!consumed) return json({ error: "expired-or-invalid-session" }, 401, allowedOrigin);
 
     const ownerId = "browser:" + session.id;
 
     if (request.method === "POST" && url.pathname === "/v1/jobs") {
       const body = await request.json() as Record<string, unknown>;
-      const response = await trustedFetch(
-        request,
-        env,
-        JSON.stringify({ ...body, ownerId }),
-      );
+      const response = await trustedFetch(request, env, JSON.stringify({ ...body, ownerId }));
       return withCors(response, allowedOrigin);
     }
 
     const contentMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/content$/);
+    const advanceMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/advance$/);
     const statusMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)$/);
-    const jobId = contentMatch?.[1] ?? statusMatch?.[1];
+    const jobId = contentMatch?.[1] ?? advanceMatch?.[1] ?? statusMatch?.[1];
     if (jobId) {
       const denied = await verifyOwnership(request, env, jobId, ownerId);
       if (denied) return withCors(denied, allowedOrigin);

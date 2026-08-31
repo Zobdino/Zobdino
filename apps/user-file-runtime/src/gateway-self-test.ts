@@ -13,15 +13,8 @@ interface SessionRow {
   request_count: number;
   revoked_at: string | null;
 }
-
-interface JobRow {
-  manifest_json: string;
-}
-
-interface ContentRow {
-  jobId: string;
-  text: string;
-}
+interface JobRow { manifest_json: string; }
+interface ContentRow { jobId: string; text: string; }
 
 class MemoryDb {
   private sessions = new Map<string, SessionRow>();
@@ -43,7 +36,6 @@ class MemoryDb {
     const row = this.sessions.get(hash);
     if (row) row.expires_at = "2000-01-01T00:00:00.000Z";
   }
-
   async exhaustToken(token: string) {
     const hash = await sha256Hex(token);
     const row = this.sessions.get(hash);
@@ -53,56 +45,39 @@ class MemoryDb {
   private run(sql: string, values: unknown[]) {
     if (sql.startsWith("INSERT INTO browser_ingestion_sessions")) {
       const row: SessionRow = {
-        id: String(values[0]),
-        token_sha256: String(values[1]),
-        origin: String(values[2]),
-        created_at: String(values[3]),
-        expires_at: String(values[4]),
-        request_count: Number(values[5]),
+        id: String(values[0]), token_sha256: String(values[1]), origin: String(values[2]),
+        created_at: String(values[3]), expires_at: String(values[4]), request_count: Number(values[5]),
         revoked_at: values[6] === null ? null : String(values[6]),
       };
       this.sessions.set(row.token_sha256, row);
       return { meta: { changes: 1 } };
     }
-
     if (sql.startsWith("UPDATE browser_ingestion_sessions SET request_count")) {
       const [id, origin, nowIso, requestLimit] = values;
       const row = [...this.sessions.values()].find((candidate) => candidate.id === String(id));
-      const usable = Boolean(
-        row &&
-        row.origin === String(origin) &&
-        row.revoked_at === null &&
-        row.expires_at > String(nowIso) &&
-        row.request_count < Number(requestLimit),
-      );
+      const usable = Boolean(row && row.origin === String(origin) && row.revoked_at === null &&
+        row.expires_at > String(nowIso) && row.request_count < Number(requestLimit));
       if (row && usable) row.request_count += 1;
       return { meta: { changes: usable ? 1 : 0 } };
     }
-
     if (sql.startsWith("INSERT INTO user_file_jobs")) {
       this.jobs.set(String(values[0]), { manifest_json: String(values[3]) });
       return { meta: { changes: 1 } };
     }
-
     if (sql.startsWith("UPDATE user_file_jobs SET")) {
       const jobId = String(values[3]);
-      if (this.jobs.has(jobId)) {
-        this.jobs.set(jobId, { manifest_json: String(values[1]) });
-      }
+      if (this.jobs.has(jobId)) this.jobs.set(jobId, { manifest_json: String(values[1]) });
       return { meta: { changes: this.jobs.has(jobId) ? 1 : 0 } };
     }
-
     if (sql.startsWith("DELETE FROM user_file_content")) {
       const jobId = String(values[0]);
       this.content = this.content.filter((item) => item.jobId !== jobId);
       return { meta: { changes: 1 } };
     }
-
     if (sql.startsWith("INSERT INTO user_file_content")) {
       this.content.push({ jobId: String(values[0]), text: String(values[3]) });
       return { meta: { changes: 1 } };
     }
-
     throw new Error(`Unhandled D1 run query: ${sql}`);
   }
 
@@ -110,21 +85,16 @@ class MemoryDb {
     if (sql.startsWith("SELECT COUNT(*) AS count FROM browser_ingestion_sessions")) {
       const origin = String(values[0]);
       const createdSince = String(values[1]);
-      return {
-        count: [...this.sessions.values()].filter(
-          (row) => row.origin === origin && row.created_at >= createdSince,
-        ).length,
-      };
+      return { count: [...this.sessions.values()].filter(
+        (row) => row.origin === origin && row.created_at >= createdSince,
+      ).length };
     }
-
     if (sql.includes("FROM browser_ingestion_sessions WHERE token_sha256 = ?")) {
       return this.sessions.get(String(values[0])) ?? null;
     }
-
     if (sql.includes("SELECT manifest_json FROM user_file_jobs WHERE id = ?")) {
       return this.jobs.get(String(values[0])) ?? null;
     }
-
     if (sql.includes("FROM user_file_content WHERE job_id = ?")) {
       const rows = this.content.filter((item) => item.jobId === String(values[0]));
       return {
@@ -132,7 +102,6 @@ class MemoryDb {
         character_count: rows.reduce((sum, item) => sum + item.text.length, 0),
       };
     }
-
     throw new Error(`Unhandled D1 first query: ${sql}`);
   }
 }
@@ -145,26 +114,16 @@ const env: RuntimeEnv = {
   ZOBDINO_DB: db,
 };
 
-async function call(
-  path: string,
-  options: {
-    method?: string;
-    token?: string;
-    body?: unknown;
-    origin?: string;
-  } = {},
-) {
+async function call(path: string, options: {
+  method?: string; token?: string; body?: unknown; origin?: string;
+} = {}) {
   const headers = new Headers({ origin: options.origin ?? origin });
   if (options.token) headers.set("x-zobdino-session", options.token);
   if (options.body !== undefined) headers.set("content-type", "application/json");
-  return worker.fetch(
-    new Request(`https://runtime.test${path}`, {
-      method: options.method ?? "GET",
-      headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    }),
-    env,
-  );
+  return worker.fetch(new Request(`https://runtime.test${path}`, {
+    method: options.method ?? "GET", headers,
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  }), env);
 }
 
 async function issueSession() {
@@ -176,25 +135,16 @@ async function issueSession() {
 }
 
 const invalidOrigin = await call("/v1/browser-sessions", {
-  method: "POST",
-  body: {},
-  origin: "https://evil.example",
+  method: "POST", body: {}, origin: "https://evil.example",
 });
 assert.equal(invalidOrigin.status, 403);
 
 const token = await issueSession();
 const createResponse = await call("/v1/jobs", {
-  method: "POST",
-  token,
+  method: "POST", token,
   body: {
-    fileName: "gateway-test.txt",
-    format: "txt",
-    mimeType: "text/plain",
-    sizeBytes: 12,
-    sha256: "a".repeat(64),
-    mode: "both",
-    voice: "sulafat",
-    rightsConfirmed: true,
+    fileName: "gateway-test.txt", format: "txt", mimeType: "text/plain", sizeBytes: 12,
+    sha256: "a".repeat(64), mode: "both", voice: "sulafat", rightsConfirmed: true,
   },
 });
 assert.equal(createResponse.status, 201);
@@ -205,41 +155,59 @@ const sections = [{ sectionIndex: 0, sourceRef: "section:1", text: "سلام ز�
 const canonical = "0:section:1\nسلام زبدینو";
 const contentSha256 = await sha256Hex(canonical);
 const contentResponse = await call(`/v1/jobs/${jobId}/content`, {
-  method: "POST",
-  token,
-  body: { sections, contentSha256 },
+  method: "POST", token, body: { sections, contentSha256 },
 });
 assert.equal(contentResponse.status, 200);
 
+const advanceResponse = await call(`/v1/jobs/${jobId}/advance`, {
+  method: "POST", token, body: {},
+});
+assert.equal(advanceResponse.status, 200);
+const advanced = await advanceResponse.json() as {
+  job: { stage: string; assets: unknown[]; checkpoints: unknown[] };
+  orchestration: { externalProviderCalls: boolean; nextStage: string };
+};
+assert.equal(advanced.job.stage, "full-audio");
+assert.equal(advanced.job.assets.length, 5);
+assert.equal(advanced.orchestration.externalProviderCalls, false);
+assert.equal(advanced.orchestration.nextStage, "full-audio");
+
+const rerunResponse = await call(`/v1/jobs/${jobId}/advance`, {
+  method: "POST", token, body: {},
+});
+assert.equal(rerunResponse.status, 200);
+const rerun = await rerunResponse.json() as { job: { assets: unknown[]; checkpoints: unknown[] } };
+assert.equal(rerun.job.assets.length, advanced.job.assets.length);
+assert.equal(rerun.job.checkpoints.length, advanced.job.checkpoints.length);
+
 const statusResponse = await call(`/v1/jobs/${jobId}`, { token });
 assert.equal(statusResponse.status, 200);
-const statusPayload = await statusResponse.json() as { job: { ownerId: string }; content: { section_count: number } };
+const statusPayload = await statusResponse.json() as {
+  job: { ownerId: string; stage: string; assets: unknown[] };
+  content: { section_count: number };
+};
 assert.match(statusPayload.job.ownerId, /^browser:/);
+assert.equal(statusPayload.job.stage, "full-audio");
+assert.equal(statusPayload.job.assets.length, 5);
 assert.equal(statusPayload.content.section_count, 1);
 
 const wrongToken = await issueSession();
-const wrongSessionResponse = await call(`/v1/jobs/${jobId}`, { token: wrongToken });
+const wrongSessionResponse = await call(`/v1/jobs/${jobId}/advance`, {
+  method: "POST", token: wrongToken, body: {},
+});
 assert.equal(wrongSessionResponse.status, 404);
 
 const mismatchCreate = await call("/v1/jobs", {
-  method: "POST",
-  token,
+  method: "POST", token,
   body: {
-    fileName: "mismatch.md",
-    format: "markdown",
-    sizeBytes: 10,
-    sha256: "b".repeat(64),
-    mode: "summary-podcast",
-    voice: "schedar",
-    rightsConfirmed: true,
+    fileName: "mismatch.md", format: "markdown", sizeBytes: 10,
+    sha256: "b".repeat(64), mode: "summary-podcast", voice: "schedar", rightsConfirmed: true,
   },
 });
 assert.equal(mismatchCreate.status, 201);
 const mismatchJob = await mismatchCreate.json() as { job: { jobId: string } };
 const mismatchResponse = await call(`/v1/jobs/${mismatchJob.job.jobId}/content`, {
-  method: "POST",
-  token,
-  body: { sections, contentSha256: "c".repeat(64) },
+  method: "POST", token, body: { sections, contentSha256: "c".repeat(64) },
 });
 assert.equal(mismatchResponse.status, 400);
 assert.equal((await mismatchResponse.json() as { error: string }).error, "content-sha256-mismatch");
