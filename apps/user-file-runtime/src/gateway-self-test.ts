@@ -111,6 +111,7 @@ const db = new MemoryDb();
 const env: RuntimeEnv = {
   ZOBDINO_UPLOAD_TOKEN: "server-only-test-token",
   ZOBDINO_ALLOWED_ORIGINS: origin,
+  ZOBDINO_GENERATION_MODE: "offline-test",
   ZOBDINO_DB: db,
 };
 
@@ -123,6 +124,13 @@ async function call(path: string, options: {
   return worker.fetch(new Request(`https://runtime.test${path}`, {
     method: options.method ?? "GET", headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  }), env);
+}
+
+async function trustedCall(path: string, method = "POST") {
+  return worker.fetch(new Request(`https://runtime.test${path}`, {
+    method,
+    headers: { authorization: `Bearer ${env.ZOBDINO_UPLOAD_TOKEN}` },
   }), env);
 }
 
@@ -170,15 +178,35 @@ const advanced = await advanceResponse.json() as {
 assert.equal(advanced.job.stage, "full-audio");
 assert.equal(advanced.job.assets.length, 5);
 assert.equal(advanced.orchestration.externalProviderCalls, false);
-assert.equal(advanced.orchestration.nextStage, "full-audio");
 
-const rerunResponse = await call(`/v1/jobs/${jobId}/advance`, {
+const browserGenerate = await call(`/v1/jobs/${jobId}/generate`, {
   method: "POST", token, body: {},
 });
-assert.equal(rerunResponse.status, 200);
-const rerun = await rerunResponse.json() as { job: { assets: unknown[]; checkpoints: unknown[] } };
-assert.equal(rerun.job.assets.length, advanced.job.assets.length);
-assert.equal(rerun.job.checkpoints.length, advanced.job.checkpoints.length);
+assert.equal(browserGenerate.status, 404);
+
+const fullAudioGeneration = await trustedCall(`/v1/jobs/${jobId}/generate`);
+assert.equal(fullAudioGeneration.status, 200);
+const fullAudioPayload = await fullAudioGeneration.json() as {
+  job: { stage: string; assets: Array<{ kind: string; status: string }> };
+  generation: { externalProviderCalls: boolean };
+};
+assert.equal(fullAudioPayload.job.stage, "summarizing");
+assert.equal(
+  fullAudioPayload.job.assets.find((asset) => asset.kind === "full-audio")?.status,
+  "verified",
+);
+assert.equal(fullAudioPayload.generation.externalProviderCalls, false);
+
+const summaryGeneration = await trustedCall(`/v1/jobs/${jobId}/generate`);
+assert.equal(summaryGeneration.status, 200);
+const summaryPayload = await summaryGeneration.json() as {
+  job: { stage: string; assets: Array<{ kind: string; status: string }> };
+};
+assert.equal(summaryPayload.job.stage, "summary-audio");
+assert.equal(
+  summaryPayload.job.assets.find((asset) => asset.kind === "summary")?.status,
+  "verified",
+);
 
 const statusResponse = await call(`/v1/jobs/${jobId}`, { token });
 assert.equal(statusResponse.status, 200);
@@ -187,7 +215,7 @@ const statusPayload = await statusResponse.json() as {
   content: { section_count: number };
 };
 assert.match(statusPayload.job.ownerId, /^browser:/);
-assert.equal(statusPayload.job.stage, "full-audio");
+assert.equal(statusPayload.job.stage, "summary-audio");
 assert.equal(statusPayload.job.assets.length, 5);
 assert.equal(statusPayload.content.section_count, 1);
 
