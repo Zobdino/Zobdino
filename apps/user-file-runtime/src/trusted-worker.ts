@@ -1,5 +1,6 @@
 import {
   createUserFileJob,
+  finalizeUserFileJob,
   orchestrateNormalizedUserFile,
   resolveExtractionStrategy,
   runUserFileGeneration,
@@ -210,7 +211,7 @@ async function generateJob(env: RuntimeEnv, jobId: string) {
   const store = new D1JobStore(env.ZOBDINO_DB);
   const job = await store.get(jobId);
   if (!job) return json({ error: "job-not-found" }, 404);
-  if (job.stage !== "full-audio" && job.stage !== "summarizing") {
+  if (!["full-audio", "summarizing", "summary-audio"].includes(job.stage)) {
     return json({ error: "invalid-stage", stage: job.stage }, 409);
   }
 
@@ -225,6 +226,31 @@ async function generateJob(env: RuntimeEnv, jobId: string) {
       nextStage: generated.stage,
     },
   });
+}
+
+async function finalizeJob(env: RuntimeEnv, jobId: string) {
+  const store = new D1JobStore(env.ZOBDINO_DB);
+  const job = await store.get(jobId);
+  if (!job) return json({ error: "job-not-found" }, 404);
+
+  try {
+    const finalized = finalizeUserFileJob(job);
+    await store.save(finalized);
+    return json({
+      job: finalized,
+      finalization: {
+        library: "private",
+        publicationApproved: false,
+        ready: finalized.stage === "ready",
+      },
+    });
+  } catch (error) {
+    return json({
+      error: "quality-gate-blocked",
+      message: error instanceof Error ? error.message : String(error),
+      stage: job.stage,
+    }, 409);
+  }
 }
 
 const worker = {
@@ -259,6 +285,11 @@ const worker = {
     const generateMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/generate$/);
     if (request.method === "POST" && generateMatch?.[1]) {
       return generateJob(env, generateMatch[1]);
+    }
+
+    const finalizeMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/finalize$/);
+    if (request.method === "POST" && finalizeMatch?.[1]) {
+      return finalizeJob(env, finalizeMatch[1]);
     }
 
     const jobMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)$/);

@@ -9,7 +9,7 @@ import { checkpointJob, transitionJob } from "./state-machine.ts";
 export interface GenerationUnit {
   id: string;
   assetId: string;
-  stage: Extract<UserFileStage, "full-audio" | "summarizing">;
+  stage: Extract<UserFileStage, "full-audio" | "summarizing" | "summary-audio">;
 }
 
 export type GenerationResult =
@@ -45,15 +45,16 @@ function updateAsset(
 }
 
 function unitsFor(job: UserFileJobManifest): GenerationUnit[] {
-  if (job.stage === "full-audio") {
-    const asset = job.assets.find((item) => item.kind === "full-audio");
-    return asset ? [{ id: `${job.jobId}:full-audio:v1`, assetId: asset.id, stage: "full-audio" }] : [];
-  }
-  if (job.stage === "summarizing") {
-    const asset = job.assets.find((item) => item.kind === "summary");
-    return asset ? [{ id: `${job.jobId}:summary:v1`, assetId: asset.id, stage: "summarizing" }] : [];
-  }
-  return [];
+  const target = job.stage === "full-audio"
+    ? job.assets.find((item) => item.kind === "full-audio")
+    : job.stage === "summarizing"
+      ? job.assets.find((item) => item.kind === "summary")
+      : job.stage === "summary-audio"
+        ? job.assets.find((item) => item.kind === "summary-audio")
+        : undefined;
+  return target
+    ? [{ id: `${job.jobId}:${job.stage}:v1`, assetId: target.id, stage: job.stage as GenerationUnit["stage"] }]
+    : [];
 }
 
 function alreadyCompleted(job: UserFileJobManifest, unit: GenerationUnit) {
@@ -64,7 +65,8 @@ function nextStage(job: UserFileJobManifest): UserFileStage {
   if (job.stage === "full-audio") {
     return job.mode === "full-audio" ? "quality-check" : "summarizing";
   }
-  return job.mode === "summary-podcast" ? "summary-audio" : "summary-audio";
+  if (job.stage === "summarizing") return "summary-audio";
+  return "quality-check";
 }
 
 export async function runUserFileGeneration(
@@ -72,7 +74,7 @@ export async function runUserFileGeneration(
   adapter: GenerationAdapter,
   now = new Date().toISOString(),
 ): Promise<UserFileJobManifest> {
-  if (input.stage !== "full-audio" && input.stage !== "summarizing") {
+  if (!["full-audio", "summarizing", "summary-audio"].includes(input.stage)) {
     throw new Error(`Generation runner does not support stage ${input.stage}.`);
   }
 
