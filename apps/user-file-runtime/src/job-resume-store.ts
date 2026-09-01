@@ -1,7 +1,11 @@
 import type { RuntimeEnv } from "./types.ts";
 
 export class JobResumeStore {
-  constructor(private readonly db: RuntimeEnv["ZOBDINO_DB"]) {}
+  private readonly db: RuntimeEnv["ZOBDINO_DB"];
+
+  constructor(db: RuntimeEnv["ZOBDINO_DB"]) {
+    this.db = db;
+  }
 
   async bind(jobId: string, tokenSha256: string, createdAt: string) {
     await this.db
