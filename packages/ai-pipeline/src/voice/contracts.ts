@@ -1,4 +1,5 @@
 import type { ProcessingMode, VoiceId } from "../contracts.ts";
+import { APPROVED_VOICE_REGISTRY, assertApprovedProductionVoice } from "./approved-voices.ts";
 
 export type NarrationMode = Exclude<ProcessingMode, "both">;
 
@@ -50,13 +51,13 @@ export class VoiceProviderError extends Error {
 }
 
 export const AVAYAR_VOICE_MAP: Readonly<Record<VoiceId, string>> = {
-  sulafat: "Sulafat",
-  iapetus: "Iapetus",
+  sulafat: APPROVED_VOICE_REGISTRY.sulafat.providerVoice,
+  schedar: APPROVED_VOICE_REGISTRY.schedar.providerVoice,
 };
 
 export function validateVoiceRequest(request: VoiceRequest): void {
   if (request.language !== "fa-IR") throw new Error("voice-language-unsupported");
   if (!request.text.trim()) throw new Error("voice-text-empty");
   if (!request.chapterId.trim()) throw new Error("voice-chapter-id-empty");
-  if (!(request.voiceId in AVAYAR_VOICE_MAP)) throw new Error("voice-id-unsupported");
+  assertApprovedProductionVoice(request.voiceId);
 }
