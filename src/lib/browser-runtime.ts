@@ -13,7 +13,10 @@ interface CreateJobResponse {
 
 export interface BrowserRuntimeAudioSegment {
   id?: string;
+  index?: number;
   status?: string;
+  startOffset?: number;
+  endOffset?: number;
   durationMs?: number;
   mimeType?: string;
   playbackPath?: string;
