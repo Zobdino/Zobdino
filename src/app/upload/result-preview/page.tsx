@@ -5,7 +5,10 @@ export default function UploadResultPreviewPage() {
         <section className="rounded-3xl border border-zinc-800 bg-zinc-900/70 p-6 shadow-2xl backdrop-blur sm:p-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="text-sm text-emerald-400">نتیجه پردازش خصوصی</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm text-emerald-400">نتیجه پردازش خصوصی</p>
+                <span className="rounded-full border border-zinc-700 bg-zinc-950/60 px-2.5 py-1 text-[11px] text-zinc-400">پیش‌نمایش #۱۸۷</span>
+              </div>
               <h1 className="mt-2 text-3xl font-bold tracking-tight">خلاصه و فایل صوتی آماده است</h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
                 این صفحه قرارداد نهایی تجربه کاربری خروجی فایل شخصی را نشان می‌دهد. در نسخه متصل به Runtime، متن خلاصه و فایل صوتی فقط پس از عبور از کنترل کیفیت و تأیید checksum نمایش داده می‌شوند.
