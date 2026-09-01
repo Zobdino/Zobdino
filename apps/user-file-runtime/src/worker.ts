@@ -140,8 +140,15 @@ const worker = {
 
     const contentMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/content$/);
     const advanceMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/advance$/);
+    const generateMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/generate$/);
+    const finalizeMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/finalize$/);
     const statusMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)$/);
-    const jobId = contentMatch?.[1] ?? advanceMatch?.[1] ?? statusMatch?.[1];
+    const jobId = contentMatch?.[1]
+      ?? advanceMatch?.[1]
+      ?? generateMatch?.[1]
+      ?? finalizeMatch?.[1]
+      ?? statusMatch?.[1];
+
     if (jobId) {
       const denied = await verifyOwnership(request, env, jobId, ownerId);
       if (denied) return withCors(denied, allowedOrigin);
