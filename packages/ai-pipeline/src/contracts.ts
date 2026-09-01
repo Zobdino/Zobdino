@@ -1,6 +1,8 @@
+import type { CanonicalVoiceId } from "./voice/approved-voices.ts";
+
 export type ProcessingMode = "full" | "summary" | "both";
 
-export type VoiceId = "sulafat" | "iapetus";
+export type VoiceId = CanonicalVoiceId;
 
 export type RightsBasis =
   | "user-owned"
