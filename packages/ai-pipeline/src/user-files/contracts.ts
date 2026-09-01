@@ -50,6 +50,13 @@ export interface SourceReference {
   sourceSha256: string;
 }
 
+export interface SourceEvidence {
+  sourceRef: string;
+  startOffset: number;
+  endOffset: number;
+  sourceSha256: string;
+}
+
 export interface AudioSegmentReceipt {
   id: string;
   index: number;
@@ -90,6 +97,7 @@ export interface GeneratedAsset {
     provider: string;
     model: string;
   };
+  evidence?: SourceEvidence[];
   audioSegments?: AudioSegmentReceipt[];
 }
 
