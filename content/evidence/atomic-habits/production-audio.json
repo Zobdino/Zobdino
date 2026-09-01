@@ -11,5 +11,8 @@
   "bytes": 9002572,
   "sha256": "d875adbb1f16429754643d45c1ecf70d0d0f3130d5121797f142e505b9d59ff0",
   "githubDigest": "sha256:d875adbb1f16429754643d45c1ecf70d0d0f3130d5121797f142e505b9d59ff0",
-  "verified": true
+  "verified": true,
+  "voiceVerification": "legacy-unverified",
+  "canonicalVoiceId": null,
+  "voiceVerificationNote": "Legacy production audio predates the canonical Sulafat/Schedar voice registry and must not be presented as canonical-voice verified."
 }
