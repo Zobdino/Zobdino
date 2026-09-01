@@ -15,6 +15,7 @@ import {
 } from "./browser-session.ts";
 import { BrowserSessionStore } from "./browser-session-store.ts";
 import { D1JobStore } from "./d1-store.ts";
+import { JobResumeStore } from "./job-resume-store.ts";
 import {
   geminiPersianSummaryProvider,
   offlinePersianSummaryProvider,
@@ -33,7 +34,7 @@ function corsHeaders(origin: string) {
   return {
     "access-control-allow-origin": origin,
     "access-control-allow-methods": "GET,POST,OPTIONS",
-    "access-control-allow-headers": "content-type,x-zobdino-session",
+    "access-control-allow-headers": "content-type,x-zobdino-session,x-zobdino-resume",
     "access-control-max-age": "600",
     "vary": "Origin",
   };
@@ -65,6 +66,7 @@ function trustedRequest(request: Request, env: RuntimeEnv, body?: string) {
   const headers = new Headers(request.headers);
   headers.set("authorization", "Bearer " + env.ZOBDINO_UPLOAD_TOKEN);
   headers.delete("x-zobdino-session");
+  headers.delete("x-zobdino-resume");
   return new Request(request.url, { method: request.method, headers, body });
 }
 
@@ -377,6 +379,45 @@ const worker = {
       return new Response(null, { status: 204, headers: corsHeaders(allowedOrigin) });
     }
 
+    const playbackMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/audio\/([^/]+)\/([^/]+)$/);
+    const statusMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)$/);
+    const resumeToken = request.headers.get("x-zobdino-resume")?.trim() ?? "";
+
+    if (resumeToken) {
+      if (!/^[a-f0-9]{64}$/.test(resumeToken)) {
+        return json({ error: "invalid-resume-token" }, 401, allowedOrigin);
+      }
+      const resumeStore = new JobResumeStore(env.ZOBDINO_DB);
+      const boundJobId = await resumeStore.jobIdForToken(await sha256Hex(resumeToken));
+      if (!boundJobId) return json({ error: "invalid-resume-token" }, 401, allowedOrigin);
+
+      const encodedJobId = playbackMatch?.[1] ?? statusMatch?.[1];
+      if (!encodedJobId || decodeURIComponent(encodedJobId) !== boundJobId) {
+        return json({ error: "job-not-found" }, 404, allowedOrigin);
+      }
+
+      await resumeStore.touch(boundJobId, new Date().toISOString());
+
+      if (request.method === "GET" && playbackMatch?.[2] && playbackMatch?.[3]) {
+        return streamPrivateAudio(
+          request,
+          env,
+          allowedOrigin,
+          boundJobId,
+          decodeURIComponent(playbackMatch[2]),
+          decodeURIComponent(playbackMatch[3]),
+        );
+      }
+
+      if (request.method === "GET" && statusMatch?.[1]) {
+        const { response, payload } = await getTrustedJob(request, env, boundJobId);
+        if (!response.ok || !payload?.job) return withCors(response, allowedOrigin);
+        return json({ ...payload, job: browserSafeJob(payload.job) }, response.status, allowedOrigin);
+      }
+
+      return json({ error: "resume-operation-not-allowed" }, 405, allowedOrigin);
+    }
+
     const sessions = new BrowserSessionStore(env.ZOBDINO_DB);
     if (request.method === "POST" && url.pathname === "/v1/browser-sessions") {
       const now = new Date();
@@ -420,15 +461,23 @@ const worker = {
     if (request.method === "POST" && url.pathname === "/v1/jobs") {
       const body = await request.json() as Record<string, unknown>;
       const response = await trustedFetch(request, env, JSON.stringify({ ...body, ownerId }));
-      return withCors(response, allowedOrigin);
+      const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+      if (!response.ok) return json(payload, response.status, allowedOrigin);
+
+      const job = payload.job as Record<string, unknown> | undefined;
+      const jobId = String(job?.jobId ?? "");
+      if (!jobId) return json({ error: "job-create-response-invalid" }, 502, allowedOrigin);
+
+      const resumeToken = randomSessionToken();
+      const resumeStore = new JobResumeStore(env.ZOBDINO_DB);
+      await resumeStore.bind(jobId, await sha256Hex(resumeToken), new Date().toISOString());
+      return json({ ...payload, resumeToken }, response.status, allowedOrigin);
     }
 
     const contentMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/content$/);
     const advanceMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/advance$/);
     const generateMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/generate$/);
     const finalizeMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/finalize$/);
-    const playbackMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/audio\/([^/]+)\/([^/]+)$/);
-    const statusMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)$/);
     const encodedJobId = playbackMatch?.[1]
       ?? contentMatch?.[1]
       ?? advanceMatch?.[1]
