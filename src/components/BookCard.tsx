@@ -11,6 +11,7 @@ interface BookCardProps {
 export default function BookCard({ book }: BookCardProps) {
   const episode = episodes.find((item) => item.bookSlug === book.slug);
   const ready = episode?.audio.status === "ready";
+  const legacyUnverifiedVoice = book.slug === "atomic-habits" && ready;
 
   const durationLabel =
     episode && episode.audio.durationSeconds > 0
@@ -36,13 +37,19 @@ export default function BookCard({ book }: BookCardProps) {
 
           <span
             className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold backdrop-blur ${
-              ready
-                ? "border-emerald-400/30 bg-emerald-950/80 text-emerald-200"
-                : "border-amber-400/30 bg-amber-950/80 text-amber-200"
+              legacyUnverifiedVoice
+                ? "border-amber-400/30 bg-amber-950/80 text-amber-200"
+                : ready
+                  ? "border-emerald-400/30 bg-emerald-950/80 text-emerald-200"
+                  : "border-amber-400/30 bg-amber-950/80 text-amber-200"
             }`}
           >
             {ready ? <Headphones size={13} /> : <LoaderCircle size={13} />}
-            {ready ? "آماده شنیدن" : "در حال تولید"}
+            {legacyUnverifiedVoice
+              ? "صدای قدیمی؛ تأییدنشده"
+              : ready
+                ? "آماده شنیدن"
+                : "در حال تولید"}
           </span>
         </div>
 
@@ -61,6 +68,12 @@ export default function BookCard({ book }: BookCardProps) {
           {book.titleFa}
         </h3>
         <p className="mt-2 text-sm text-gray-400">{book.authorFa}</p>
+
+        {legacyUnverifiedVoice && (
+          <p className="mt-3 text-xs leading-6 text-amber-300/90">
+            این فایل پیش از ثبت دو صدای نهایی زبدینو تولید شده و صدای canonical تأییدشده نیست.
+          </p>
+        )}
 
         <div className="mt-5 flex items-center justify-between border-t border-gray-800 pt-4 text-sm">
           {durationLabel ? (
