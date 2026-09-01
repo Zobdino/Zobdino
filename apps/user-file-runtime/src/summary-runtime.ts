@@ -46,7 +46,8 @@ async function sourceEvidence(
 
 export async function runVerifiedSummaryStage(input: {
   job: UserFileJobManifest;
-  sourceSections: Array<{ sourceRef: string; text: string }>;
+  sourceSections?: Array<{ sourceRef: string; text: string }>;
+  sourceText?: string;
   provider: SummaryProvider;
   onCheckpoint?: (job: UserFileJobManifest) => Promise<void>;
 }) {
@@ -54,7 +55,12 @@ export async function runVerifiedSummaryStage(input: {
     throw new Error(`Summary runtime requires summarizing stage, received ${input.job.stage}.`);
   }
 
-  const grounded = await sourceEvidence(input.sourceSections);
+  const sourceSections = input.sourceSections?.length
+    ? input.sourceSections
+    : input.sourceText?.trim()
+      ? [{ sourceRef: "document:1", text: input.sourceText }]
+      : [];
+  const grounded = await sourceEvidence(sourceSections);
   if (!grounded.sourceText) throw new Error("summary-source-content-missing");
 
   const generated = await runUserFileGeneration(input.job, {
