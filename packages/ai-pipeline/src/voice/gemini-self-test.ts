@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
+import { APPROVED_PRODUCTION_VOICE_IDS, APPROVED_VOICE_REGISTRY } from "./approved-voices.ts";
 import { GeminiVoiceProvider, wrapPcm16AsWav, type GeminiVoiceTransport } from "./gemini.ts";
 import { VoiceProviderError } from "./contracts.ts";
 import { VoiceService } from "./service.ts";
 
 const goldenText = "این یک متن کوتاه فارسی برای آزمون مسیر صوتی زبدینو است.";
 
-for (const [voiceId, providerVoice] of [["sulafat", "Sulafat"], ["iapetus", "Iapetus"]] as const) {
+for (const voiceId of APPROVED_PRODUCTION_VOICE_IDS) {
+  const providerVoice = APPROVED_VOICE_REGISTRY[voiceId].providerVoice;
   let capturedBody: unknown;
   const pcm = new Uint8Array(24000 * 2 / 10);
   const transport: GeminiVoiceTransport = {
@@ -78,9 +80,9 @@ assert.equal(attempts, 2);
 let terminalAttempts = 0;
 const terminalTransport: GeminiVoiceTransport = { async send() { terminalAttempts += 1; return { status: 400, text: "bad request" }; } };
 await assert.rejects(
-  () => new VoiceService(new GeminiVoiceProvider({ apiKey: "offline-test-key", transport: terminalTransport }), { maxAttempts: 3 }).narrate({ text: goldenText, voiceId: "iapetus", mode: "summary", chapterId: "terminal", language: "fa-IR" }),
+  () => new VoiceService(new GeminiVoiceProvider({ apiKey: "offline-test-key", transport: terminalTransport }), { maxAttempts: 3 }).narrate({ text: goldenText, voiceId: "schedar", mode: "summary", chapterId: "terminal", language: "fa-IR" }),
   (error: unknown) => error instanceof VoiceProviderError && error.retryable === false && error.status === 400,
 );
 assert.equal(terminalAttempts, 1);
 
-console.log("Zobdino Gemini voice adapter: Sulafat/Iapetus payload, parameterized L16 MIME, playable WAV normalization, retry classification and checksum path validated.");
+console.log("Zobdino Gemini voice adapter: Sulafat/Schedar payload, parameterized L16 MIME, playable WAV normalization, retry classification and checksum path validated.");
