@@ -5,6 +5,7 @@ import {
 
 import type {
   AudioSegmentStore,
+  SourceEvidence,
   UserFileJobManifest,
 } from "../../../packages/ai-pipeline/src/user-files/index.ts";
 import type { VoiceProvider } from "../../../packages/ai-pipeline/src/voice/contracts.ts";
@@ -20,9 +21,32 @@ async function sha256Text(value: string) {
     .join("");
 }
 
+async function sourceEvidence(
+  sections: Array<{ sourceRef: string; text: string }>,
+): Promise<{ sourceText: string; evidence: SourceEvidence[] }> {
+  const evidence: SourceEvidence[] = [];
+  let sourceText = "";
+
+  for (const section of sections) {
+    const text = section.text.trim();
+    if (!text) continue;
+    if (sourceText) sourceText += "\n\n";
+    const startOffset = sourceText.length;
+    sourceText += text;
+    evidence.push({
+      sourceRef: section.sourceRef,
+      startOffset,
+      endOffset: sourceText.length,
+      sourceSha256: await sha256Text(text),
+    });
+  }
+
+  return { sourceText, evidence };
+}
+
 export async function runVerifiedSummaryStage(input: {
   job: UserFileJobManifest;
-  sourceText: string;
+  sourceSections: Array<{ sourceRef: string; text: string }>;
   provider: SummaryProvider;
   onCheckpoint?: (job: UserFileJobManifest) => Promise<void>;
 }) {
@@ -30,10 +54,13 @@ export async function runVerifiedSummaryStage(input: {
     throw new Error(`Summary runtime requires summarizing stage, received ${input.job.stage}.`);
   }
 
+  const grounded = await sourceEvidence(input.sourceSections);
+  if (!grounded.sourceText) throw new Error("summary-source-content-missing");
+
   const generated = await runUserFileGeneration(input.job, {
     async run(unit) {
       try {
-        const result = await input.provider.summarize(input.sourceText);
+        const result = await input.provider.summarize(grounded.sourceText);
         const text = result.text.trim();
         if (!text) throw new Error("summary-provider-empty-response");
         const sha256 = await sha256Text(text);
@@ -47,6 +74,7 @@ export async function runVerifiedSummaryStage(input: {
             provider: result.provider,
             model: result.model,
           },
+          evidence: grounded.evidence,
         };
       } catch (error) {
         const status = Number((error as { status?: unknown })?.status ?? 0);
