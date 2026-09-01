@@ -8,9 +8,30 @@ interface SessionResponse {
 }
 
 interface CreateJobResponse {
-  job: {
-    jobId: string;
-  };
+  job: { jobId: string };
+}
+
+export interface BrowserRuntimeAsset {
+  id: string;
+  kind: string;
+  status: string;
+  uri?: string;
+  bytes?: number;
+}
+
+export interface BrowserJobStatus {
+  jobId: string;
+  stage: string;
+  mode?: string;
+  privacy?: string;
+  assets: BrowserRuntimeAsset[];
+  quotaPause?: {
+    provider?: string;
+    operation?: string;
+    retryAfterSeconds?: number;
+    resetAt?: string;
+    resumeStage?: string;
+  } | null;
 }
 
 export interface BrowserRuntimeResult {
@@ -19,6 +40,7 @@ export interface BrowserRuntimeResult {
   sectionCount: number;
   characterCount: number;
   contentSha256: string;
+  sessionToken: string;
 }
 
 export class BrowserRuntimeError extends Error {
@@ -35,15 +57,38 @@ function runtimeBaseUrl() {
 }
 
 async function requestJson<T>(url: string, init: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    cache: "no-store",
-  });
+  const response = await fetch(url, { ...init, cache: "no-store" });
   const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
   if (!response.ok) {
     throw new BrowserRuntimeError(String(payload.error ?? "runtime-request-failed"), response.status);
   }
   return payload as T;
+}
+
+export async function getBrowserJobStatus(jobId: string, sessionToken: string): Promise<BrowserJobStatus> {
+  const baseUrl = runtimeBaseUrl();
+  const payload = await requestJson<{
+    job?: {
+      jobId?: unknown;
+      stage?: unknown;
+      mode?: unknown;
+      privacy?: unknown;
+      assets?: unknown;
+      quotaPause?: BrowserJobStatus["quotaPause"];
+    };
+  }>(`${baseUrl}/v1/jobs/${encodeURIComponent(jobId)}`, {
+    method: "GET",
+    headers: { "x-zobdino-session": sessionToken },
+  });
+
+  return {
+    jobId: String(payload.job?.jobId ?? jobId),
+    stage: String(payload.job?.stage ?? "received"),
+    mode: payload.job?.mode ? String(payload.job.mode) : undefined,
+    privacy: payload.job?.privacy ? String(payload.job.privacy) : undefined,
+    assets: Array.isArray(payload.job?.assets) ? payload.job.assets as BrowserRuntimeAsset[] : [],
+    quotaPause: payload.job?.quotaPause ?? null,
+  };
 }
 
 export async function runBrowserIngestion(input: {
@@ -84,29 +129,15 @@ export async function runBrowserIngestion(input: {
   });
 
   const jobId = created.job.jobId;
-  const receipt = await requestJson<BrowserRuntimeResult>(
+  const receipt = await requestJson<Omit<BrowserRuntimeResult, "sessionToken">>(
     `${baseUrl}/v1/jobs/${encodeURIComponent(jobId)}/content`,
     {
       method: "POST",
       headers: sessionHeaders,
-      body: JSON.stringify({
-        contentSha256: input.contentSha256,
-        sections: input.sections,
-      }),
+      body: JSON.stringify({ contentSha256: input.contentSha256, sections: input.sections }),
     },
   );
 
-  const status = await requestJson<{ job?: { stage?: unknown } }>(
-    `${baseUrl}/v1/jobs/${encodeURIComponent(jobId)}`,
-    {
-      method: "GET",
-      headers: { "x-zobdino-session": session.token },
-    },
-  );
-
-  return {
-    ...receipt,
-    jobId,
-    stage: String(status.job?.stage ?? receipt.stage),
-  };
+  const status = await getBrowserJobStatus(jobId, session.token);
+  return { ...receipt, jobId, stage: status.stage, sessionToken: session.token };
 }
