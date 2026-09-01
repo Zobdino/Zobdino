@@ -295,8 +295,10 @@ async function generateBrowserSummaryStage(env: RuntimeEnv, jobId: string): Prom
 
   if (job.stage === "summarizing") {
     const sections = await store.content(job.jobId);
-    const sourceText = sections.map((section) => section.text).join("\n\n").trim();
-    if (!sourceText) return json({ error: "summary-source-content-missing" }, 409);
+    const sourceSections = sections
+      .map((section) => ({ sourceRef: section.sourceRef, text: section.text.trim() }))
+      .filter((section) => section.text.length > 0);
+    if (!sourceSections.length) return json({ error: "summary-source-content-missing" }, 409);
 
     let provider;
     try {
@@ -309,7 +311,7 @@ async function generateBrowserSummaryStage(env: RuntimeEnv, jobId: string): Prom
 
     const generated = await runVerifiedSummaryStage({
       job,
-      sourceText,
+      sourceSections,
       provider,
       onCheckpoint: async (checkpointed) => store.save(checkpointed),
     });
