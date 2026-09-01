@@ -16,6 +16,7 @@ import { useEffect, useMemo, useState } from "react";
 import RuntimeAssetPlayer from "@/components/RuntimeAssetPlayer";
 import {
   canonicalSections,
+  readBrowserDocumentText,
   sectionText,
   sha256,
   supportedTextFile,
@@ -155,18 +156,20 @@ export default function UserFileIngestion() {
 
     if (!supportedTextFile(file)) {
       setStatus("error");
-      setMessage("فعلاً فقط فایل‌های TXT و Markdown پشتیبانی می‌شوند.");
+      setMessage("فرمت فایل پشتیبانی نمی‌شود. TXT، Markdown یا DOCX انتخاب کنید.");
       return;
     }
-    if (file.size > 1_000_000) {
+    const isDocx = file.name.toLowerCase().endsWith(".docx");
+    const maxBytes = isDocx ? 8_000_000 : 1_000_000;
+    if (file.size > maxBytes) {
       setStatus("error");
-      setMessage("حجم متن برای نسخه فعلی باید کمتر از یک مگابایت باشد.");
+      setMessage(isDocx ? "حجم DOCX باید کمتر از هشت مگابایت باشد." : "حجم متن باید کمتر از یک مگابایت باشد.");
       return;
     }
 
     setStatus("reading");
     try {
-      const text = await file.text();
+      const text = await readBrowserDocumentText(file);
       const sections = sectionText(text);
       if (!sections.length || sections.length > 128) throw new Error("invalid-content");
       const digest = await sha256(canonicalSections(sections));
@@ -174,7 +177,7 @@ export default function UserFileIngestion() {
       setStatus("ready");
     } catch {
       setStatus("error");
-      setMessage("متن فایل قابل پردازش نیست. محتوای فایل را بررسی کنید.");
+      setMessage(isDocx ? "متن DOCX قابل استخراج نیست. ساختار فایل را بررسی کنید." : "متن فایل قابل پردازش نیست. محتوای فایل را بررسی کنید.");
     }
   }
 
@@ -236,8 +239,8 @@ export default function UserFileIngestion() {
             <label className="flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed border-violet-400/50 bg-violet-50/50 p-6 text-center transition hover:border-violet-500 dark:bg-violet-950/10">
               <UploadCloud className="mb-3 text-violet-500" size={42} />
               <span className="text-lg font-black">فایل خود را اینجا رها کنید</span>
-              <span className="mt-2 text-sm text-zinc-500">یا برای انتخاب TXT / Markdown کلیک کنید</span>
-              <input className="sr-only" type="file" accept=".txt,.md,text/plain,text/markdown" disabled={busy} onChange={(event) => void prepare(event.target.files?.[0])} />
+              <span className="mt-2 text-sm text-zinc-500">یا برای انتخاب TXT / Markdown / DOCX کلیک کنید</span>
+              <input className="sr-only" type="file" accept=".txt,.md,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document" disabled={busy} onChange={(event) => void prepare(event.target.files?.[0])} />
             </label>
 
             {fileName && (
