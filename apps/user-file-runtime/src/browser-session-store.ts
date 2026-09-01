@@ -34,7 +34,11 @@ function toRecord(row: SessionRow): BrowserSessionRecord {
 }
 
 export class BrowserSessionStore {
-  constructor(private readonly db: RuntimeEnv["ZOBDINO_DB"]) {}
+  private readonly db: RuntimeEnv["ZOBDINO_DB"];
+
+  constructor(db: RuntimeEnv["ZOBDINO_DB"]) {
+    this.db = db;
+  }
 
   async create(session: BrowserSessionRecord) {
     await this.db.prepare(
