@@ -3,16 +3,23 @@ import {
   finalizeUserFileJob,
   orchestrateNormalizedUserFile,
   resolveExtractionStrategy,
+  runCanonicalAudioStage,
   runUserFileGeneration,
   transitionJob,
 } from "../../../packages/ai-pipeline/src/user-files/index.ts";
 
 import type {
+  AudioSegmentStore,
   GenerationAdapter,
   UserFileFormat,
   UserFileMode,
   UserFileVoice,
 } from "../../../packages/ai-pipeline/src/user-files/index.ts";
+import type {
+  VoiceProvider,
+  VoiceRequest,
+  VoiceResult,
+} from "../../../packages/ai-pipeline/src/voice/contracts.ts";
 
 import { D1JobStore } from "./d1-store.ts";
 import type { RuntimeEnv } from "./types.ts";
@@ -46,12 +53,15 @@ function validVoice(value: unknown): value is UserFileVoice {
   return ["sulafat", "schedar"].includes(String(value));
 }
 
-async function sha256Text(value: string) {
-  const bytes = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+async function sha256Bytes(value: Uint8Array) {
+  const digest = await crypto.subtle.digest("SHA-256", value);
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+async function sha256Text(value: string) {
+  return sha256Bytes(new TextEncoder().encode(value));
 }
 
 async function createJob(request: Request, env: RuntimeEnv) {
@@ -203,6 +213,36 @@ function offlineGenerationAdapter(): GenerationAdapter {
   };
 }
 
+function offlineCanonicalVoiceProvider(): VoiceProvider {
+  return {
+    id: "offline-canonical-voice",
+    async synthesize(request: VoiceRequest): Promise<VoiceResult> {
+      const audio = new TextEncoder().encode(`offline-audio:${request.chapterId}:${request.voiceId}:${request.text}`);
+      return {
+        audio,
+        mimeType: "audio/wav",
+        durationMs: Math.max(100, request.text.length * 20),
+        sha256: await sha256Bytes(audio),
+        provenance: {
+          provider: "offline-canonical-voice",
+          model: "deterministic-ci-v1",
+          providerVoice: request.voiceId,
+          adapterVersion: "user-file-runtime-ci-v1",
+        },
+        retryCount: 0,
+      };
+    },
+  };
+}
+
+function offlineAudioSegmentStore(): AudioSegmentStore {
+  return {
+    async put(input) {
+      return `internal://offline-test/audio/${encodeURIComponent(input.jobId)}/${encodeURIComponent(input.segmentId)}.${input.mimeType === "audio/wav" ? "wav" : "mp3"}`;
+    },
+  };
+}
+
 async function generateJob(env: RuntimeEnv, jobId: string) {
   if (env.ZOBDINO_GENERATION_MODE !== "offline-test") {
     return json({ error: "generation-provider-not-configured" }, 503);
@@ -215,6 +255,31 @@ async function generateJob(env: RuntimeEnv, jobId: string) {
     return json({ error: "invalid-stage", stage: job.stage }, 409);
   }
 
+  if (job.stage === "full-audio") {
+    const sections = await store.content(job.jobId);
+    const text = sections.map((section) => section.text).join("\n\n").trim();
+    if (!text) return json({ error: "audio-source-content-missing" }, 409);
+
+    const generated = await runCanonicalAudioStage(job, {
+      text,
+      provider: offlineCanonicalVoiceProvider(),
+      store: offlineAudioSegmentStore(),
+      maxSegmentCharacters: 400,
+      onCheckpoint: async (checkpointed) => store.save(checkpointed),
+    });
+    await store.save(generated);
+    return json({
+      job: generated,
+      generation: {
+        mode: "offline-test",
+        engine: "canonical-audio-segments",
+        externalProviderCalls: false,
+        segmentCount: generated.assets.find((asset) => asset.kind === "full-audio")?.audioSegments?.length ?? 0,
+        nextStage: generated.stage,
+      },
+    });
+  }
+
   const generated = await runUserFileGeneration(job, offlineGenerationAdapter());
   await store.save(generated);
 
@@ -222,6 +287,7 @@ async function generateJob(env: RuntimeEnv, jobId: string) {
     job: generated,
     generation: {
       mode: "offline-test",
+      engine: "provider-neutral-generation",
       externalProviderCalls: false,
       nextStage: generated.stage,
     },
