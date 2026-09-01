@@ -13,7 +13,14 @@ export interface GenerationUnit {
 }
 
 export type GenerationResult =
-  | { status: "verified"; sha256?: string; uri?: string; bytes?: number }
+  | {
+      status: "verified";
+      sha256?: string;
+      uri?: string;
+      bytes?: number;
+      text?: string;
+      provenance?: { provider: string; model: string };
+    }
   | {
       status: "quota-paused";
       provider: string;
@@ -39,6 +46,8 @@ function updateAsset(
           sha256: result.sha256 ?? asset.sha256,
           uri: result.uri ?? asset.uri,
           bytes: result.bytes ?? asset.bytes,
+          text: result.text ?? asset.text,
+          provenance: result.provenance ?? asset.provenance,
         }
       : asset,
   );
