@@ -28,7 +28,10 @@ export default function PrivateLibrary() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setItems(readPrivateLibrary());
+    const frame = window.requestAnimationFrame(() => {
+      setItems(readPrivateLibrary());
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   const verifiedAssets = useMemo(
