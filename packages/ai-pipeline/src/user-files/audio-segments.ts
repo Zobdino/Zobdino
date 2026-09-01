@@ -43,8 +43,8 @@ export interface RunAudioStageOptions {
 
 const MIN_BREAK_RATIO = 0.55;
 
-export function canonicalVoiceId(voice: UserFileVoice): "sulafat" | "iapetus" {
-  return voice === "sulafat" ? "sulafat" : "iapetus";
+export function canonicalVoiceId(voice: UserFileVoice): UserFileVoice {
+  return voice;
 }
 
 export function planNarrationSegments(
