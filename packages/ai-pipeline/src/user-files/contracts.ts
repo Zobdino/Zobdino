@@ -85,6 +85,11 @@ export interface GeneratedAsset {
   uri?: string;
   sha256?: string;
   bytes?: number;
+  text?: string;
+  provenance?: {
+    provider: string;
+    model: string;
+  };
   audioSegments?: AudioSegmentReceipt[];
 }
 
