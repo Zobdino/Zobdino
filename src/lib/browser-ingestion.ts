@@ -1,3 +1,5 @@
+import { extractDocxText } from "@/lib/docx-browser";
+
 export type IngestionMode = "full-audio" | "summary-podcast" | "both";
 export type IngestionVoice = "sulafat" | "schedar";
 
@@ -9,8 +11,17 @@ export interface BrowserSection {
 
 export function supportedTextFile(file: Pick<File, "name" | "type">) {
   const name = file.name.toLowerCase();
-  return name.endsWith(".txt") || name.endsWith(".md") ||
-    file.type === "text/plain" || file.type === "text/markdown";
+  return name.endsWith(".txt") || name.endsWith(".md") || name.endsWith(".docx") ||
+    file.type === "text/plain" || file.type === "text/markdown" ||
+    file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+}
+
+export async function readBrowserDocumentText(file: File) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".docx") || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+    return extractDocxText(file);
+  }
+  return file.text();
 }
 
 export function sectionText(value: string, limit = 22000): BrowserSection[] {
