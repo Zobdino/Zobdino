@@ -1,5 +1,6 @@
 import type {
   GeneratedAsset,
+  SourceEvidence,
   UserFileJobManifest,
   UserFileStage,
 } from "./contracts.ts";
@@ -20,6 +21,7 @@ export type GenerationResult =
       bytes?: number;
       text?: string;
       provenance?: { provider: string; model: string };
+      evidence?: SourceEvidence[];
     }
   | {
       status: "quota-paused";
@@ -48,6 +50,7 @@ function updateAsset(
           bytes: result.bytes ?? asset.bytes,
           text: result.text ?? asset.text,
           provenance: result.provenance ?? asset.provenance,
+          evidence: result.evidence ?? asset.evidence,
         }
       : asset,
   );
