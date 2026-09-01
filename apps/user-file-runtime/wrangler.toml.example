@@ -7,5 +7,14 @@ binding = "ZOBDINO_DB"
 database_name = "zobdino-user-file-jobs"
 database_id = "REPLACE_AFTER_CREATE"
 
+# Required only when ZOBDINO_GENERATION_MODE is explicitly set to "gemini".
+# The bucket remains private; generated manifests store private-audio:// URIs.
+[[r2_buckets]]
+binding = "ZOBDINO_AUDIO_BUCKET"
+bucket_name = "REPLACE_WITH_PRIVATE_AUDIO_BUCKET"
+
 [vars]
 ZOBDINO_ALLOWED_ORIGINS = "https://zobdino.ir,https://www.zobdino.ir"
+# Keep generation disabled by default. For a controlled runtime, set explicitly:
+# ZOBDINO_GENERATION_MODE = "gemini"
+# GEMINI_API_KEY must be supplied as a Worker secret, never as a plain variable.

@@ -1,3 +1,4 @@
+export * from "./audio-segments.ts";
 export * from "./contracts.ts";
 export * from "./finalization.ts";
 export * from "./generation-runner.ts";

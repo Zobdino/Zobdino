@@ -117,6 +117,34 @@ export class D1JobStore {
     }
   }
 
+  async content(jobId: string): Promise<StoredContentSection[]> {
+    const sections: StoredContentSection[] = [];
+    for (let sectionIndex = 0; sectionIndex < 128; sectionIndex += 1) {
+      const row = await this.db
+        .prepare(`
+          SELECT
+            section_index,
+            source_ref,
+            text_content
+          FROM user_file_content
+          WHERE job_id = ? AND section_index = ?
+        `)
+        .bind(jobId, sectionIndex)
+        .first<{
+          section_index: number;
+          source_ref: string;
+          text_content: string;
+        }>();
+      if (!row) continue;
+      sections.push({
+        sectionIndex: Number(row.section_index),
+        sourceRef: String(row.source_ref),
+        text: String(row.text_content),
+      });
+    }
+    return sections.sort((a, b) => a.sectionIndex - b.sectionIndex);
+  }
+
   async contentSummary(jobId: string) {
     return this.db
       .prepare(`

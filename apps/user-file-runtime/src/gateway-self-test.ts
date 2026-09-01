@@ -14,7 +14,7 @@ interface SessionRow {
   revoked_at: string | null;
 }
 interface JobRow { manifest_json: string; }
-interface ContentRow { jobId: string; text: string; }
+interface ContentRow { jobId: string; sectionIndex: number; sourceRef: string; text: string; }
 
 class MemoryDb {
   private sessions = new Map<string, SessionRow>();
@@ -75,7 +75,12 @@ class MemoryDb {
       return { meta: { changes: 1 } };
     }
     if (sql.startsWith("INSERT INTO user_file_content")) {
-      this.content.push({ jobId: String(values[0]), text: String(values[3]) });
+      this.content.push({
+        jobId: String(values[0]),
+        sectionIndex: Number(values[1]),
+        sourceRef: String(values[2]),
+        text: String(values[3]),
+      });
       return { meta: { changes: 1 } };
     }
     throw new Error(`Unhandled D1 run query: ${sql}`);
@@ -94,6 +99,14 @@ class MemoryDb {
     }
     if (sql.includes("SELECT manifest_json FROM user_file_jobs WHERE id = ?")) {
       return this.jobs.get(String(values[0])) ?? null;
+    }
+    if (sql.includes("section_index, source_ref, text_content") && sql.includes("section_index = ?")) {
+      const row = this.content.find(
+        (item) => item.jobId === String(values[0]) && item.sectionIndex === Number(values[1]),
+      );
+      return row
+        ? { section_index: row.sectionIndex, source_ref: row.sourceRef, text_content: row.text }
+        : null;
     }
     if (sql.includes("FROM user_file_content WHERE job_id = ?")) {
       const rows = this.content.filter((item) => item.jobId === String(values[0]));
@@ -159,8 +172,9 @@ assert.equal(createResponse.status, 201);
 const created = await createResponse.json() as { job: { jobId: string } };
 const jobId = created.job.jobId;
 
-const sections = [{ sectionIndex: 0, sourceRef: "section:1", text: "سلام زبدینو" }];
-const canonical = "0:section:1\nسلام زبدینو";
+const longText = `${"سلام زبدینو. ".repeat(80)}پایان.`;
+const sections = [{ sectionIndex: 0, sourceRef: "section:1", text: longText }];
+const canonical = `0:section:1\n${longText}`;
 const contentSha256 = await sha256Hex(canonical);
 const contentResponse = await call(`/v1/jobs/${jobId}/content`, {
   method: "POST", token, body: { sections, contentSha256 },
@@ -191,14 +205,21 @@ assert.equal(browserFinalize.status, 404);
 const fullAudioGeneration = await trustedCall(`/v1/jobs/${jobId}/generate`);
 assert.equal(fullAudioGeneration.status, 200);
 const fullAudioPayload = await fullAudioGeneration.json() as {
-  job: { stage: string; assets: Array<{ kind: string; status: string }> };
-  generation: { externalProviderCalls: boolean };
+  job: {
+    stage: string;
+    assets: Array<{ kind: string; status: string; audioSegments?: Array<{ status: string }> }>;
+    checkpoints: Array<{ digest?: string }>;
+  };
+  generation: { externalProviderCalls: boolean; engine?: string; segmentCount?: number };
 };
 assert.equal(fullAudioPayload.job.stage, "summarizing");
-assert.equal(
-  fullAudioPayload.job.assets.find((asset) => asset.kind === "full-audio")?.status,
-  "verified",
-);
+const fullAudioAsset = fullAudioPayload.job.assets.find((asset) => asset.kind === "full-audio");
+assert.equal(fullAudioAsset?.status, "verified");
+assert.ok((fullAudioAsset?.audioSegments?.length ?? 0) > 1);
+assert.equal(fullAudioPayload.generation.engine, "canonical-audio-segments");
+assert.equal(fullAudioPayload.generation.segmentCount, fullAudioAsset?.audioSegments?.length);
+assert.ok(fullAudioAsset?.audioSegments?.every((segment) => segment.status === "verified"));
+assert.ok(fullAudioPayload.job.checkpoints.filter((item) => item.digest?.startsWith("tts-segment:")).length > 1);
 assert.equal(fullAudioPayload.generation.externalProviderCalls, false);
 
 const summaryGeneration = await trustedCall(`/v1/jobs/${jobId}/generate`);

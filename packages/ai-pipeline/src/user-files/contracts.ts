@@ -50,6 +50,25 @@ export interface SourceReference {
   sourceSha256: string;
 }
 
+export interface AudioSegmentReceipt {
+  id: string;
+  index: number;
+  startOffset: number;
+  endOffset: number;
+  status: "verified";
+  uri: string;
+  sha256: string;
+  bytes: number;
+  durationMs: number;
+  mimeType: "audio/mpeg" | "audio/wav";
+  provenance: {
+    provider: string;
+    model: string;
+    providerVoice: string;
+    adapterVersion: string;
+  };
+}
+
 export interface GeneratedAsset {
   id: string;
   kind:
@@ -66,6 +85,7 @@ export interface GeneratedAsset {
   uri?: string;
   sha256?: string;
   bytes?: number;
+  audioSegments?: AudioSegmentReceipt[];
 }
 
 export interface QuotaPause {
