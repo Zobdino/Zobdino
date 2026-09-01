@@ -1,0 +1,154 @@
+name: Zobdino Dual-Voice Quota-Safe Checkpoint
+
+on:
+  workflow_dispatch:
+    inputs:
+      batch:
+        description: Dual-voice batch
+        required: true
+        default: batch-a-atomic
+        type: string
+      resume_run_id:
+        description: Optional failed run ID to restore first
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: zobdino-dual-voice-quota-safe
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_TTS_MODEL: ${{ vars.GEMINI_TTS_MODEL || 'gemini-3.1-flash-tts-preview' }}
+
+    steps:
+      - name: Checkout exact dispatch ref
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate quota-paused classifier
+        run: node scripts/dual-voice-quota-state-self-test.mjs
+
+      - name: Validate repository and dual-voice contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run check:text
+          npm run check:episodes
+          node scripts/dual-voice-render.mjs \
+            --mode validate \
+            --batch "${{ inputs.batch }}" \
+            --out .dual-voice
+
+      - name: Restore verified checkpoint
+        if: ${{ inputs.resume_run_id != '' }}
+        shell: bash
+        env:
+          RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RESUME_RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo "::error::resume_run_id must be numeric."
+            exit 1
+          }
+
+          ARTIFACT_NAME="dual-voice-failed-${{ inputs.batch }}-$RESUME_RUN_ID"
+          rm -rf .resume-artifact
+          mkdir -p .resume-artifact
+
+          gh run download "$RESUME_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" \
+            --dir .resume-artifact
+
+          RUN_JSON="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RESUME_RUN_ID")"
+          SOURCE_SHA="$(jq -r '.head_sha' <<<"$RUN_JSON")"
+          ARTIFACTS="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RESUME_RUN_ID/artifacts?per_page=100")"
+          ARTIFACT_ID="$(jq -r --arg name "$ARTIFACT_NAME" '.artifacts[] | select(.name == $name and .expired == false) | .id' <<<"$ARTIFACTS")"
+          ARTIFACT_DIGEST="$(jq -r --arg name "$ARTIFACT_NAME" '.artifacts[] | select(.name == $name and .expired == false) | .digest' <<<"$ARTIFACTS")"
+
+          node scripts/dual-voice-resume-seed.mjs \
+            --seed .resume-artifact \
+            --out .dual-voice \
+            --batch "${{ inputs.batch }}" \
+            --source-run "$RESUME_RUN_ID" \
+            --source-sha "$SOURCE_SHA" \
+            --artifact-digest "$ARTIFACT_DIGEST" \
+            --artifact-id "$ARTIFACT_ID"
+
+      - name: Generate with controlled quota pause
+        id: generate
+        shell: bash
+        run: |
+          set +e
+          RESUME_ARGS=()
+          if [[ -f .dual-voice/resume-index.json ]]; then
+            RESUME_ARGS=(--resume-metadata .dual-voice/resume-index.json)
+          fi
+
+          node scripts/dual-voice-quota-safe-runner.mjs \
+            --mode generate \
+            --batch "${{ inputs.batch }}" \
+            --out .dual-voice \
+            "${RESUME_ARGS[@]}"
+          CODE=$?
+          set -e
+
+          if [[ "$CODE" == "75" ]]; then
+            echo "quota_paused=true" >> "$GITHUB_OUTPUT"
+            echo "completed=false" >> "$GITHUB_OUTPUT"
+            echo "Quota exhausted after preserving checkpoints; treating as controlled pause."
+            exit 0
+          fi
+
+          if [[ "$CODE" != "0" ]]; then
+            echo "::error::Dual-voice generation failed with non-quota exit code $CODE."
+            exit "$CODE"
+          fi
+
+          echo "quota_paused=false" >> "$GITHUB_OUTPUT"
+          echo "completed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload durable checkpoint
+        if: ${{ always() && (steps.generate.outputs.quota_paused == 'true' || failure()) }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: dual-voice-failed-${{ inputs.batch }}-${{ github.run_id }}
+          path: .dual-voice
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+      - name: Verify quota-paused manifest
+        if: ${{ steps.generate.outputs.quota_paused == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s .dual-voice/quota-paused.json
+          jq -e '.schemaVersion == 1 and .state == "quota-paused" and .batch == "${{ inputs.batch }}"' \
+            .dual-voice/quota-paused.json >/dev/null
+          echo "Quota-paused manifest PASS"
+
+      - name: Generation completed
+        if: ${{ steps.generate.outputs.completed == 'true' }}
+        run: echo "Generation completed without quota exhaustion; hand off to the existing QA/release workflow."
