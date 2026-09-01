@@ -72,21 +72,117 @@ async function trustedFetch(request: Request, env: RuntimeEnv, body?: string) {
   return trustedWorker.fetch(trustedRequest(request, env, body), env);
 }
 
+async function getTrustedJob(request: Request, env: RuntimeEnv, jobId: string) {
+  const lookupUrl = new URL("/v1/jobs/" + encodeURIComponent(jobId), request.url);
+  const lookup = new Request(lookupUrl, { method: "GET", headers: request.headers });
+  const response = await trustedFetch(lookup, env);
+  if (!response.ok) return { response, payload: null };
+  const payload = await response.json() as {
+    job?: {
+      jobId?: unknown;
+      ownerId?: unknown;
+      assets?: Array<Record<string, unknown>>;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+  return { response, payload };
+}
+
 async function verifyOwnership(
   request: Request,
   env: RuntimeEnv,
   jobId: string,
   ownerId: string,
 ) {
-  const lookupUrl = new URL("/v1/jobs/" + encodeURIComponent(jobId), request.url);
-  const lookup = new Request(lookupUrl, { method: "GET", headers: request.headers });
-  const response = await trustedFetch(lookup, env);
-  if (!response.ok) return response;
-  const payload = await response.json() as { job?: { ownerId?: unknown } };
-  if (String(payload.job?.ownerId ?? "") !== ownerId) {
+  const { response, payload } = await getTrustedJob(request, env, jobId);
+  if (!response.ok || !payload?.job) return response;
+  if (String(payload.job.ownerId ?? "") !== ownerId) {
     return json({ error: "job-not-found" }, 404);
   }
   return null;
+}
+
+function browserSafeJob(job: Record<string, unknown>) {
+  const jobId = String(job.jobId ?? "");
+  const assets = Array.isArray(job.assets) ? job.assets : [];
+  return {
+    ...job,
+    assets: assets.map((rawAsset) => {
+      const asset = rawAsset as Record<string, unknown>;
+      const { uri: _assetUri, ...safeAsset } = asset;
+      const audioSegments = Array.isArray(asset.audioSegments) ? asset.audioSegments : undefined;
+      return {
+        ...safeAsset,
+        ...(audioSegments
+          ? {
+              audioSegments: audioSegments.map((rawSegment) => {
+                const segment = rawSegment as Record<string, unknown>;
+                const { uri: _segmentUri, ...safeSegment } = segment;
+                const assetId = String(asset.id ?? "");
+                const segmentId = String(segment.id ?? "");
+                return {
+                  ...safeSegment,
+                  playbackPath: `/v1/jobs/${encodeURIComponent(jobId)}/audio/${encodeURIComponent(assetId)}/${encodeURIComponent(segmentId)}`,
+                };
+              }),
+            }
+          : {}),
+      };
+    }),
+  };
+}
+
+async function streamPrivateAudio(
+  request: Request,
+  env: RuntimeEnv,
+  origin: string,
+  jobId: string,
+  assetId: string,
+  segmentId: string,
+) {
+  const { response, payload } = await getTrustedJob(request, env, jobId);
+  if (!response.ok || !payload?.job) return withCors(response, origin);
+
+  const asset = payload.job.assets?.find((candidate) => String(candidate.id ?? "") === assetId);
+  const segments = Array.isArray(asset?.audioSegments) ? asset.audioSegments : [];
+  const segment = segments.find((candidate) => {
+    const item = candidate as Record<string, unknown>;
+    return String(item.id ?? "") === segmentId && String(item.status ?? "") === "verified";
+  }) as Record<string, unknown> | undefined;
+  const uri = String(segment?.uri ?? "");
+
+  if (!segment || !uri.startsWith("private-audio://")) {
+    return json({ error: "audio-segment-not-found" }, 404, origin);
+  }
+  if (!env.ZOBDINO_AUDIO_BUCKET) {
+    return json({ error: "audio-store-not-configured" }, 503, origin);
+  }
+
+  const key = uri.slice("private-audio://".length);
+  const object = await env.ZOBDINO_AUDIO_BUCKET.get(key);
+  if (!object) return json({ error: "audio-segment-not-found" }, 404, origin);
+
+  const metadata = object.customMetadata ?? {};
+  if (
+    (metadata.jobId && metadata.jobId !== jobId) ||
+    (metadata.assetId && metadata.assetId !== assetId) ||
+    (metadata.segmentId && metadata.segmentId !== segmentId)
+  ) {
+    return json({ error: "audio-segment-not-found" }, 404, origin);
+  }
+
+  return new Response(object.body, {
+    status: 200,
+    headers: {
+      ...corsHeaders(origin),
+      "content-type": object.httpMetadata?.contentType ?? String(segment.mimeType ?? "audio/mpeg"),
+      "content-length": String(object.size),
+      "cache-control": "private, no-store",
+      "content-disposition": "inline",
+      "x-content-type-options": "nosniff",
+    },
+  });
 }
 
 async function sha256Bytes(value: Uint8Array) {
@@ -331,16 +427,36 @@ const worker = {
     const advanceMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/advance$/);
     const generateMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/generate$/);
     const finalizeMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/finalize$/);
+    const playbackMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/audio\/([^/]+)\/([^/]+)$/);
     const statusMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)$/);
-    const jobId = contentMatch?.[1]
+    const encodedJobId = playbackMatch?.[1]
+      ?? contentMatch?.[1]
       ?? advanceMatch?.[1]
       ?? generateMatch?.[1]
       ?? finalizeMatch?.[1]
       ?? statusMatch?.[1];
 
-    if (jobId) {
+    if (encodedJobId) {
+      const jobId = decodeURIComponent(encodedJobId);
       const denied = await verifyOwnership(request, env, jobId, ownerId);
       if (denied) return withCors(denied, allowedOrigin);
+
+      if (request.method === "GET" && playbackMatch?.[2] && playbackMatch?.[3]) {
+        return streamPrivateAudio(
+          request,
+          env,
+          allowedOrigin,
+          jobId,
+          decodeURIComponent(playbackMatch[2]),
+          decodeURIComponent(playbackMatch[3]),
+        );
+      }
+
+      if (request.method === "GET" && statusMatch?.[1]) {
+        const { response, payload } = await getTrustedJob(request, env, jobId);
+        if (!response.ok || !payload?.job) return withCors(response, allowedOrigin);
+        return json({ ...payload, job: browserSafeJob(payload.job) }, response.status, allowedOrigin);
+      }
 
       if (request.method === "POST" && generateMatch?.[1]) {
         const generated = await generateBrowserSummaryStage(env, jobId);
