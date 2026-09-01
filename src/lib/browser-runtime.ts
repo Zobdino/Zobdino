@@ -17,6 +17,14 @@ export interface BrowserRuntimeAsset {
   status: string;
   uri?: string;
   bytes?: number;
+  text?: string;
+  audioSegments?: Array<{
+    id?: string;
+    status?: string;
+    durationMs?: number;
+    mimeType?: string;
+    uri?: string;
+  }>;
 }
 
 export interface BrowserJobStatus {
@@ -65,6 +73,13 @@ async function requestJson<T>(url: string, init: RequestInit): Promise<T> {
   return payload as T;
 }
 
+function sessionHeaders(sessionToken: string) {
+  return {
+    "content-type": "application/json",
+    "x-zobdino-session": sessionToken,
+  };
+}
+
 export async function getBrowserJobStatus(jobId: string, sessionToken: string): Promise<BrowserJobStatus> {
   const baseUrl = runtimeBaseUrl();
   const payload = await requestJson<{
@@ -91,6 +106,49 @@ export async function getBrowserJobStatus(jobId: string, sessionToken: string): 
   };
 }
 
+async function postJobAction(jobId: string, sessionToken: string, action: "advance" | "generate" | "finalize") {
+  const baseUrl = runtimeBaseUrl();
+  return requestJson<Record<string, unknown>>(
+    `${baseUrl}/v1/jobs/${encodeURIComponent(jobId)}/${action}`,
+    {
+      method: "POST",
+      headers: sessionHeaders(sessionToken),
+      body: "{}",
+    },
+  );
+}
+
+export async function driveBrowserJobToTerminal(
+  jobId: string,
+  sessionToken: string,
+  maxTransitions = 12,
+): Promise<BrowserJobStatus> {
+  for (let transition = 0; transition < maxTransitions; transition += 1) {
+    const status = await getBrowserJobStatus(jobId, sessionToken);
+
+    if (["ready", "failed", "quota-paused"].includes(status.stage)) return status;
+
+    if (["normalizing", "planning"].includes(status.stage)) {
+      await postJobAction(jobId, sessionToken, "advance");
+      continue;
+    }
+
+    if (["full-audio", "summarizing", "summary-audio"].includes(status.stage)) {
+      await postJobAction(jobId, sessionToken, "generate");
+      continue;
+    }
+
+    if (status.stage === "quality-check") {
+      await postJobAction(jobId, sessionToken, "finalize");
+      continue;
+    }
+
+    return status;
+  }
+
+  return getBrowserJobStatus(jobId, sessionToken);
+}
+
 export async function runBrowserIngestion(input: {
   file: File;
   sections: BrowserSection[];
@@ -106,16 +164,13 @@ export async function runBrowserIngestion(input: {
     body: "{}",
   });
 
-  const sessionHeaders = {
-    "content-type": "application/json",
-    "x-zobdino-session": session.token,
-  };
+  const headers = sessionHeaders(session.token);
   const format = input.file.name.toLowerCase().endsWith(".md") ? "markdown" : "txt";
   const fileSha256 = await sha256(await input.file.arrayBuffer());
 
   const created = await requestJson<CreateJobResponse>(`${baseUrl}/v1/jobs`, {
     method: "POST",
-    headers: sessionHeaders,
+    headers,
     body: JSON.stringify({
       fileName: input.file.name,
       format,
@@ -133,11 +188,11 @@ export async function runBrowserIngestion(input: {
     `${baseUrl}/v1/jobs/${encodeURIComponent(jobId)}/content`,
     {
       method: "POST",
-      headers: sessionHeaders,
+      headers,
       body: JSON.stringify({ contentSha256: input.contentSha256, sections: input.sections }),
     },
   );
 
-  const status = await getBrowserJobStatus(jobId, session.token);
+  const status = await driveBrowserJobToTerminal(jobId, session.token);
   return { ...receipt, jobId, stage: status.stage, sessionToken: session.token };
 }
