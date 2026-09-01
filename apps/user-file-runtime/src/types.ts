@@ -1,3 +1,10 @@
+export interface RuntimeAudioObject {
+  body: ReadableStream<Uint8Array>;
+  size: number;
+  httpMetadata?: { contentType?: string };
+  customMetadata?: Record<string, string>;
+}
+
 export interface RuntimeAudioBucket {
   put(
     key: string,
@@ -7,6 +14,7 @@ export interface RuntimeAudioBucket {
       customMetadata?: Record<string, string>;
     },
   ): Promise<unknown>;
+  get(key: string): Promise<RuntimeAudioObject | null>;
 }
 
 export interface RuntimeEnv {
