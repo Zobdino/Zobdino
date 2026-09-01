@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import RuntimeAssetPlayer from "@/components/RuntimeAssetPlayer";
 import {
   canonicalSections,
   sectionText,
@@ -80,7 +81,7 @@ const STAGE_LABELS: Record<string, string> = {
 function runtimeErrorMessage(error: unknown) {
   if (!(error instanceof BrowserRuntimeError)) return "ارتباط امن با سرویس پردازش برقرار نشد. دوباره تلاش کنید.";
   switch (error.code) {
-    case "runtime-not-configured": return "Runtime نسخه Preview هنوز برای این محیط تنظیم نشده است.";
+    case "runtime-not-configured": return "Runtime این محیط هنوز تنظیم نشده است.";
     case "session-issuance-limit": return "تعداد درخواست‌های شروع پردازش بیش از حد مجاز است. چند دقیقه دیگر دوباره تلاش کنید.";
     case "expired-or-invalid-session":
     case "invalid-session": return "نشست امن منقضی شده است. پردازش را دوباره شروع کنید.";
@@ -101,6 +102,8 @@ function assetTitle(kind: string) {
   if (kind === "full-audio") return "فایل صوتی کامل";
   if (kind === "summary-audio") return "خلاصه صوتی";
   if (kind === "summary") return "خلاصه متنی";
+  if (kind === "transcript") return "رونوشت";
+  if (kind === "chapter-map") return "فصل‌بندی";
   return kind;
 }
 
@@ -157,7 +160,7 @@ export default function UserFileIngestion() {
     }
     if (file.size > 1_000_000) {
       setStatus("error");
-      setMessage("حجم متن برای نسخه آزمایشی باید کمتر از یک مگابایت باشد.");
+      setMessage("حجم متن برای نسخه فعلی باید کمتر از یک مگابایت باشد.");
       return;
     }
 
@@ -178,7 +181,7 @@ export default function UserFileIngestion() {
   async function submit() {
     if (!prepared || !rights) return;
     setStatus("submitting");
-    setMessage("در حال ایجاد نشست امن و ثبت فایل در Runtime…");
+    setMessage("در حال ایجاد نشست امن و پردازش خودکار فایل…");
     setRuntimeReceipt(null);
     setJobStatus(null);
     try {
@@ -191,9 +194,10 @@ export default function UserFileIngestion() {
         rightsConfirmed: rights,
       });
       setRuntimeReceipt(receipt);
-      setJobStatus({ jobId: receipt.jobId, stage: receipt.stage, assets: [] });
+      const finalStatus = await getBrowserJobStatus(receipt.jobId, receipt.sessionToken);
+      setJobStatus(finalStatus);
       setStatus("submitted");
-      setMessage("فایل ثبت شد؛ وضعیت پردازش به‌صورت امن به‌روزرسانی می‌شود.");
+      setMessage(finalStatus.stage === "ready" ? "پردازش کامل شد و خروجی‌های تأییدشده آماده‌اند." : "وضعیت پردازش به‌صورت امن ثبت شد.");
     } catch (error) {
       setStatus("ready");
       setMessage(runtimeErrorMessage(error));
@@ -221,7 +225,7 @@ export default function UserFileIngestion() {
 
         <section className="rounded-3xl border border-black/10 bg-white/80 p-5 shadow-sm dark:border-white/10 dark:bg-zinc-950/80">
           <div className="flex items-center gap-2 text-violet-600 dark:text-violet-300"><LockKeyhole size={19} /><h2 className="font-black">امنیت پردازش</h2></div>
-          <p className="mt-4 text-sm leading-7 text-zinc-500">نشست مرورگر محدود و مالکیت job به همان نشست متصل است. مسیرهای تولید و نهایی‌سازی برای مرورگر قابل فراخوانی نیستند.</p>
+          <p className="mt-4 text-sm leading-7 text-zinc-500">نشست مرورگر محدود است، مالکیت هر job به همان نشست متصل می‌شود و فایل صوتی فقط پس از بررسی مالکیت از مسیر خصوصی پخش می‌شود.</p>
         </section>
       </aside>
 
@@ -272,7 +276,7 @@ export default function UserFileIngestion() {
               <label className="mt-5 block text-sm font-bold">نوع خروجی<select value={mode} disabled={busy || Boolean(runtimeReceipt)} onChange={(event) => setMode(event.target.value as IngestionMode)} className="mt-2 w-full rounded-xl border border-white/15 bg-white/10 p-3"><option value="both">خلاصه صوتی + صوت کامل</option><option value="summary-podcast">فقط خلاصه صوتی</option><option value="full-audio">فقط صوت کامل</option></select></label>
               <label className="mt-4 block text-sm font-bold">صدای روایت<select value={voice} disabled={busy || Boolean(runtimeReceipt)} onChange={(event) => setVoice(event.target.value as IngestionVoice)} className="mt-2 w-full rounded-xl border border-white/15 bg-white/10 p-3"><option value="sulafat">سولافات — صدای زن</option><option value="schedar">شِدار — صدای مرد</option></select></label>
               <label className="mt-5 flex items-start gap-3 text-sm leading-6"><input type="checkbox" checked={rights} disabled={busy || Boolean(runtimeReceipt)} onChange={(event) => setRights(event.target.checked)} className="mt-1 size-4 accent-violet-500" /><span>مجاز به پردازش این فایل هستم.</span></label>
-              <button type="button" disabled={!canContinue || busy || Boolean(runtimeReceipt)} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-3 font-black transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => void submit()}>{status === "submitting" && <LoaderCircle size={18} className="animate-spin" />}{status === "submitting" ? "در حال شروع…" : "شروع پردازش"}</button>
+              <button type="button" disabled={!canContinue || busy || Boolean(runtimeReceipt)} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-3 font-black transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => void submit()}>{status === "submitting" && <LoaderCircle size={18} className="animate-spin" />}{status === "submitting" ? "در حال پردازش…" : "شروع پردازش"}</button>
             </div>
           </div>
         </section>
@@ -280,7 +284,34 @@ export default function UserFileIngestion() {
         <section className="rounded-[2rem] border border-black/10 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#10131d] md:p-7">
           <div className="flex items-center justify-between"><h2 className="font-black">خروجی‌های آماده</h2><span className="text-xs text-zinc-500">فقط assetهای verified نمایش داده می‌شوند</span></div>
           {verifiedAssets.length ? (
-            <div className="mt-5 grid gap-4 md:grid-cols-3">{verifiedAssets.map((asset) => <article key={asset.id} className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4"><FileAudio className="text-violet-500" /><h3 className="mt-3 font-black">{assetTitle(asset.kind)}</h3><p className="mt-1 text-xs text-emerald-600">تأییدشده</p>{asset.bytes ? <p className="mt-3 text-xs text-zinc-500">{asset.bytes.toLocaleString("fa-IR")} بایت</p> : null}</article>)}</div>
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              {verifiedAssets.map((asset) => {
+                const isAudio = asset.kind === "full-audio" || asset.kind === "summary-audio";
+                const hasText = Boolean(asset.text?.trim());
+                return (
+                  <article key={asset.id} className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        {isAudio ? <FileAudio className="text-violet-500" /> : <FileText className="text-violet-500" />}
+                        <h3 className="mt-3 font-black">{assetTitle(asset.kind)}</h3>
+                        <p className="mt-1 text-xs text-emerald-600">تأییدشده</p>
+                      </div>
+                      {asset.bytes ? <p className="text-xs text-zinc-500">{asset.bytes.toLocaleString("fa-IR")} بایت</p> : null}
+                    </div>
+
+                    {hasText ? (
+                      <div className="mt-4 max-h-64 overflow-y-auto rounded-xl border border-black/10 bg-white/70 p-4 text-sm leading-7 text-zinc-700 dark:border-white/10 dark:bg-black/20 dark:text-zinc-200">
+                        {asset.text}
+                      </div>
+                    ) : null}
+
+                    {isAudio && runtimeReceipt ? (
+                      <RuntimeAssetPlayer asset={asset} sessionToken={runtimeReceipt.sessionToken} />
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
           ) : (
             <div className="mt-5 rounded-2xl border border-dashed border-black/10 p-8 text-center text-sm text-zinc-500 dark:border-white/10">خروجی تأییدشده‌ای هنوز آماده نیست. این بخش فقط وضعیت واقعی Runtime را نشان می‌دهد.</div>
           )}
