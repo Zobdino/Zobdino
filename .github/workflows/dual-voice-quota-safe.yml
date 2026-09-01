@@ -46,6 +46,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install and verify FFmpeg runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffprobe >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+          ffprobe -version | head -n 1
+          ffmpeg -version | head -n 1
+
       - name: Validate quota-paused classifier
         run: node scripts/dual-voice-quota-state-self-test.mjs
 
@@ -74,7 +85,7 @@ jobs:
 
           ARTIFACT_NAME="dual-voice-failed-${{ inputs.batch }}-$RESUME_RUN_ID"
           rm -rf .resume-artifact
-          mkdir -p .resume-artifact
+          mkdir -p .resume-artifact .dual-voice
 
           gh run download "$RESUME_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
