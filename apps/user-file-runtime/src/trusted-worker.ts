@@ -20,6 +20,7 @@ import type {
   VoiceRequest,
   VoiceResult,
 } from "../../../packages/ai-pipeline/src/voice/contracts.ts";
+import { GeminiVoiceProvider } from "../../../packages/ai-pipeline/src/voice/gemini.ts";
 
 import { D1JobStore } from "./d1-store.ts";
 import type { RuntimeEnv } from "./types.ts";
@@ -244,11 +245,58 @@ function offlineAudioSegmentStore(): AudioSegmentStore {
   };
 }
 
-async function generateJob(env: RuntimeEnv, jobId: string) {
-  if (env.ZOBDINO_GENERATION_MODE !== "offline-test") {
-    return json({ error: "generation-provider-not-configured" }, 503);
+function privateAudioBucketStore(env: RuntimeEnv): AudioSegmentStore {
+  if (!env.ZOBDINO_AUDIO_BUCKET) throw new Error("audio-store-not-configured");
+  return {
+    async put(input) {
+      const extension = input.mimeType === "audio/wav" ? "wav" : "mp3";
+      const key = `private/user-files/${encodeURIComponent(input.jobId)}/${encodeURIComponent(input.assetId)}/${encodeURIComponent(input.segmentId)}.${extension}`;
+      await env.ZOBDINO_AUDIO_BUCKET!.put(key, Uint8Array.from(input.audio), {
+        httpMetadata: { contentType: input.mimeType },
+        customMetadata: {
+          sha256: input.sha256,
+          visibility: "private",
+          jobId: input.jobId,
+          assetId: input.assetId,
+          segmentId: input.segmentId,
+        },
+      });
+      return `private-audio://${key}`;
+    },
+  };
+}
+
+function configuredAudioRuntime(env: RuntimeEnv): {
+  provider: VoiceProvider;
+  store: AudioSegmentStore;
+  externalProviderCalls: boolean;
+  mode: "offline-test" | "gemini";
+} {
+  if (env.ZOBDINO_GENERATION_MODE === "offline-test") {
+    return {
+      provider: offlineCanonicalVoiceProvider(),
+      store: offlineAudioSegmentStore(),
+      externalProviderCalls: false,
+      mode: "offline-test",
+    };
   }
 
+  if (env.ZOBDINO_GENERATION_MODE === "gemini") {
+    const apiKey = env.GEMINI_API_KEY?.trim();
+    if (!apiKey) throw new Error("gemini-api-key-not-configured");
+    if (!env.ZOBDINO_AUDIO_BUCKET) throw new Error("audio-store-not-configured");
+    return {
+      provider: new GeminiVoiceProvider({ apiKey }),
+      store: privateAudioBucketStore(env),
+      externalProviderCalls: true,
+      mode: "gemini",
+    };
+  }
+
+  throw new Error("generation-provider-not-configured");
+}
+
+async function generateJob(env: RuntimeEnv, jobId: string) {
   const store = new D1JobStore(env.ZOBDINO_DB);
   const job = await store.get(jobId);
   if (!job) return json({ error: "job-not-found" }, 404);
@@ -261,24 +309,38 @@ async function generateJob(env: RuntimeEnv, jobId: string) {
     const text = sections.map((section) => section.text).join("\n\n").trim();
     if (!text) return json({ error: "audio-source-content-missing" }, 409);
 
+    let runtime: ReturnType<typeof configuredAudioRuntime>;
+    try {
+      runtime = configuredAudioRuntime(env);
+    } catch (error) {
+      return json({
+        error: error instanceof Error ? error.message : "generation-provider-not-configured",
+      }, 503);
+    }
+
     const generated = await runCanonicalAudioStage(job, {
       text,
-      provider: offlineCanonicalVoiceProvider(),
-      store: offlineAudioSegmentStore(),
-      maxSegmentCharacters: 400,
+      provider: runtime.provider,
+      store: runtime.store,
+      maxSegmentCharacters: runtime.mode === "offline-test" ? 400 : 1800,
       onCheckpoint: async (checkpointed) => store.save(checkpointed),
     });
     await store.save(generated);
     return json({
       job: generated,
       generation: {
-        mode: "offline-test",
+        mode: runtime.mode,
         engine: "canonical-audio-segments",
-        externalProviderCalls: false,
+        externalProviderCalls: runtime.externalProviderCalls,
+        storage: runtime.mode === "gemini" ? "private-audio-bucket" : "offline-test",
         segmentCount: generated.assets.find((asset) => asset.kind === "full-audio")?.audioSegments?.length ?? 0,
         nextStage: generated.stage,
       },
     });
+  }
+
+  if (env.ZOBDINO_GENERATION_MODE !== "offline-test") {
+    return json({ error: "text-generation-provider-not-configured", stage: job.stage }, 503);
   }
 
   const generated = await runUserFileGeneration(job, offlineGenerationAdapter());
@@ -328,8 +390,8 @@ const worker = {
       return json({
         ok: true,
         service: "zobdino-user-file-runtime",
-        storage: "d1-only",
-        r2: false,
+        storage: "d1-text-plus-private-audio",
+        audioGenerationMode: env.ZOBDINO_GENERATION_MODE ?? "disabled",
       });
     }
 
