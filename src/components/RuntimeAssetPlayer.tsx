@@ -6,13 +6,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BrowserRuntimeError,
   fetchBrowserAudioSegment,
+  fetchResumedAudioSegment,
   type BrowserRuntimeAsset,
   type BrowserRuntimeAudioSegment,
 } from "@/lib/browser-runtime";
 
 interface RuntimeAssetPlayerProps {
   asset: BrowserRuntimeAsset;
-  sessionToken: string;
+  sessionToken?: string;
+  resumeToken?: string;
 }
 
 function segmentLabel(segment: BrowserRuntimeAudioSegment, index: number) {
@@ -22,7 +24,7 @@ function segmentLabel(segment: BrowserRuntimeAudioSegment, index: number) {
   return `بخش ${(index + 1).toLocaleString("fa-IR")}`;
 }
 
-export default function RuntimeAssetPlayer({ asset, sessionToken }: RuntimeAssetPlayerProps) {
+export default function RuntimeAssetPlayer({ asset, sessionToken, resumeToken }: RuntimeAssetPlayerProps) {
   const segments = useMemo(
     () => (asset.audioSegments ?? []).filter((segment) => segment.status === "verified" && segment.playbackPath),
     [asset.audioSegments],
@@ -40,19 +42,28 @@ export default function RuntimeAssetPlayer({ asset, sessionToken }: RuntimeAsset
   async function playSegment(segment: BrowserRuntimeAudioSegment, index: number) {
     if (!segment.playbackPath) return;
     setLoading(true);
+    setActiveIndex(index);
     setError("");
     try {
-      const blob = await fetchBrowserAudioSegment(segment.playbackPath, sessionToken);
+      const blob = resumeToken
+        ? await fetchResumedAudioSegment(segment.playbackPath, resumeToken)
+        : sessionToken
+          ? await fetchBrowserAudioSegment(segment.playbackPath, sessionToken)
+          : null;
+      if (!blob) throw new BrowserRuntimeError("audio-credential-missing", 401);
       const nextUrl = URL.createObjectURL(blob);
       setAudioUrl((previous) => {
         if (previous) URL.revokeObjectURL(previous);
         return nextUrl;
       });
-      setActiveIndex(index);
       requestAnimationFrame(() => void audioRef.current?.play());
     } catch (cause) {
       const code = cause instanceof BrowserRuntimeError ? cause.code : "audio-playback-failed";
-      setError(code === "expired-or-invalid-session" ? "نشست امن منقضی شده است." : "پخش این بخش ممکن نشد.");
+      setError(
+        code === "expired-or-invalid-session" || code === "invalid-resume-token"
+          ? "دسترسی خصوصی این فایل معتبر نیست."
+          : "پخش این بخش ممکن نشد.",
+      );
     } finally {
       setLoading(false);
     }
@@ -64,7 +75,7 @@ export default function RuntimeAssetPlayer({ asset, sessionToken }: RuntimeAsset
     <div className="mt-4 rounded-2xl border border-violet-500/15 bg-white/70 p-3 dark:bg-black/20">
       <div className="flex items-center gap-2 text-xs font-bold text-emerald-600">
         <ShieldCheck size={15} />
-        <span>پخش خصوصی و نشست‌محور</span>
+        <span>پخش خصوصی و امن</span>
       </div>
 
       {audioUrl ? (
