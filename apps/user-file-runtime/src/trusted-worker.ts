@@ -54,7 +54,8 @@ function validVoice(value: unknown): value is UserFileVoice {
 }
 
 async function sha256Bytes(value: Uint8Array) {
-  const digest = await crypto.subtle.digest("SHA-256", value);
+  const normalized = Uint8Array.from(value);
+  const digest = await crypto.subtle.digest("SHA-256", normalized.buffer);
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
