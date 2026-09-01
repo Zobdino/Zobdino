@@ -1,3 +1,11 @@
+import type { AudioSegmentStore } from "../../../packages/ai-pipeline/src/user-files/index.ts";
+import type {
+  VoiceProvider,
+  VoiceRequest,
+  VoiceResult,
+} from "../../../packages/ai-pipeline/src/voice/contracts.ts";
+import { GeminiVoiceProvider } from "../../../packages/ai-pipeline/src/voice/gemini.ts";
+
 import {
   allowedBrowserOrigin,
   newBrowserSession,
@@ -6,6 +14,15 @@ import {
   sha256Hex,
 } from "./browser-session.ts";
 import { BrowserSessionStore } from "./browser-session-store.ts";
+import { D1JobStore } from "./d1-store.ts";
+import {
+  geminiPersianSummaryProvider,
+  offlinePersianSummaryProvider,
+} from "./summary-provider.ts";
+import {
+  runVerifiedSummaryAudioStage,
+  runVerifiedSummaryStage,
+} from "./summary-runtime.ts";
 import trustedWorker from "./trusted-worker.ts";
 import type { RuntimeEnv } from "./types.ts";
 
@@ -69,6 +86,178 @@ async function verifyOwnership(
   if (String(payload.job?.ownerId ?? "") !== ownerId) {
     return json({ error: "job-not-found" }, 404);
   }
+  return null;
+}
+
+async function sha256Bytes(value: Uint8Array) {
+  const normalized = Uint8Array.from(value);
+  const digest = await crypto.subtle.digest("SHA-256", normalized.buffer);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function offlineCanonicalVoiceProvider(): VoiceProvider {
+  return {
+    id: "offline-canonical-voice",
+    async synthesize(request: VoiceRequest): Promise<VoiceResult> {
+      const audio = new TextEncoder().encode(
+        `offline-audio:${request.chapterId}:${request.voiceId}:${request.text}`,
+      );
+      return {
+        audio,
+        mimeType: "audio/wav",
+        durationMs: Math.max(100, request.text.length * 20),
+        sha256: await sha256Bytes(audio),
+        provenance: {
+          provider: "offline-canonical-voice",
+          model: "deterministic-ci-v1",
+          providerVoice: request.voiceId,
+          adapterVersion: "user-file-runtime-ci-v1",
+        },
+        retryCount: 0,
+      };
+    },
+  };
+}
+
+function browserAudioStore(env: RuntimeEnv): AudioSegmentStore {
+  if (env.ZOBDINO_GENERATION_MODE === "offline-test") {
+    return {
+      async put(input) {
+        const extension = input.mimeType === "audio/wav" ? "wav" : "mp3";
+        return `internal://offline-test/audio/${encodeURIComponent(input.jobId)}/${encodeURIComponent(input.segmentId)}.${extension}`;
+      },
+    };
+  }
+
+  if (!env.ZOBDINO_AUDIO_BUCKET) throw new Error("audio-store-not-configured");
+  return {
+    async put(input) {
+      const extension = input.mimeType === "audio/wav" ? "wav" : "mp3";
+      const key = `private/user-files/${encodeURIComponent(input.jobId)}/${encodeURIComponent(input.assetId)}/${encodeURIComponent(input.segmentId)}.${extension}`;
+      await env.ZOBDINO_AUDIO_BUCKET!.put(key, Uint8Array.from(input.audio), {
+        httpMetadata: { contentType: input.mimeType },
+        customMetadata: {
+          sha256: input.sha256,
+          visibility: "private",
+          jobId: input.jobId,
+          assetId: input.assetId,
+          segmentId: input.segmentId,
+        },
+      });
+      return `private-audio://${key}`;
+    },
+  };
+}
+
+function configuredSummaryProvider(env: RuntimeEnv) {
+  if (env.ZOBDINO_GENERATION_MODE === "offline-test") {
+    return offlinePersianSummaryProvider();
+  }
+  if (env.ZOBDINO_GENERATION_MODE === "gemini") {
+    const apiKey = env.GEMINI_API_KEY?.trim();
+    if (!apiKey) throw new Error("gemini-api-key-not-configured");
+    return geminiPersianSummaryProvider(apiKey);
+  }
+  throw new Error("summary-provider-not-configured");
+}
+
+function configuredSummaryAudioRuntime(env: RuntimeEnv): {
+  provider: VoiceProvider;
+  store: AudioSegmentStore;
+  mode: "offline-test" | "gemini";
+} {
+  if (env.ZOBDINO_GENERATION_MODE === "offline-test") {
+    return {
+      provider: offlineCanonicalVoiceProvider(),
+      store: browserAudioStore(env),
+      mode: "offline-test",
+    };
+  }
+
+  if (env.ZOBDINO_GENERATION_MODE === "gemini") {
+    const apiKey = env.GEMINI_API_KEY?.trim();
+    if (!apiKey) throw new Error("gemini-api-key-not-configured");
+    if (!env.ZOBDINO_AUDIO_BUCKET) throw new Error("audio-store-not-configured");
+    return {
+      provider: new GeminiVoiceProvider({ apiKey }),
+      store: browserAudioStore(env),
+      mode: "gemini",
+    };
+  }
+
+  throw new Error("generation-provider-not-configured");
+}
+
+async function generateBrowserSummaryStage(env: RuntimeEnv, jobId: string): Promise<Response | null> {
+  const store = new D1JobStore(env.ZOBDINO_DB);
+  const job = await store.get(jobId);
+  if (!job) return json({ error: "job-not-found" }, 404);
+
+  if (job.stage === "summarizing") {
+    const sections = await store.content(job.jobId);
+    const sourceText = sections.map((section) => section.text).join("\n\n").trim();
+    if (!sourceText) return json({ error: "summary-source-content-missing" }, 409);
+
+    let provider;
+    try {
+      provider = configuredSummaryProvider(env);
+    } catch (error) {
+      return json({
+        error: error instanceof Error ? error.message : "summary-provider-not-configured",
+      }, 503);
+    }
+
+    const generated = await runVerifiedSummaryStage({
+      job,
+      sourceText,
+      provider,
+      onCheckpoint: async (checkpointed) => store.save(checkpointed),
+    });
+    await store.save(generated);
+    return json({
+      job: generated,
+      generation: {
+        mode: env.ZOBDINO_GENERATION_MODE,
+        engine: "verified-persian-summary",
+        externalProviderCalls: env.ZOBDINO_GENERATION_MODE === "gemini",
+        nextStage: generated.stage,
+      },
+    }, 200);
+  }
+
+  if (job.stage === "summary-audio") {
+    let runtime: ReturnType<typeof configuredSummaryAudioRuntime>;
+    try {
+      runtime = configuredSummaryAudioRuntime(env);
+    } catch (error) {
+      return json({
+        error: error instanceof Error ? error.message : "generation-provider-not-configured",
+      }, 503);
+    }
+
+    const generated = await runVerifiedSummaryAudioStage({
+      job,
+      provider: runtime.provider,
+      store: runtime.store,
+      maxSegmentCharacters: runtime.mode === "offline-test" ? 400 : 1800,
+      onCheckpoint: async (checkpointed) => store.save(checkpointed),
+    });
+    await store.save(generated);
+    return json({
+      job: generated,
+      generation: {
+        mode: runtime.mode,
+        engine: "verified-summary-audio",
+        externalProviderCalls: runtime.mode === "gemini",
+        segmentCount: generated.assets.find((asset) => asset.kind === "summary-audio")
+          ?.audioSegments?.length ?? 0,
+        nextStage: generated.stage,
+      },
+    }, 200);
+  }
+
   return null;
 }
 
@@ -152,6 +341,12 @@ const worker = {
     if (jobId) {
       const denied = await verifyOwnership(request, env, jobId, ownerId);
       if (denied) return withCors(denied, allowedOrigin);
+
+      if (request.method === "POST" && generateMatch?.[1]) {
+        const generated = await generateBrowserSummaryStage(env, jobId);
+        if (generated) return withCors(generated, allowedOrigin);
+      }
+
       const body = request.method === "GET" ? undefined : await request.text();
       return withCors(await trustedFetch(request, env, body), allowedOrigin);
     }
