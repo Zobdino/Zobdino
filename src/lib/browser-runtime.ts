@@ -9,6 +9,7 @@ interface SessionResponse {
 
 interface CreateJobResponse {
   job: { jobId: string };
+  resumeToken: string;
 }
 
 export interface BrowserRuntimeAudioSegment {
@@ -53,7 +54,18 @@ export interface BrowserRuntimeResult {
   characterCount: number;
   contentSha256: string;
   sessionToken: string;
+  resumeToken: string;
 }
+
+export interface PrivateLibraryItem {
+  jobId: string;
+  resumeToken: string;
+  fileName: string;
+  createdAt: string;
+  lastOpenedAt: string;
+}
+
+const PRIVATE_LIBRARY_KEY = "zobdino.private-library.v1";
 
 export class BrowserRuntimeError extends Error {
   constructor(public readonly code: string, public readonly status?: number) {
@@ -84,7 +96,69 @@ function sessionHeaders(sessionToken: string) {
   };
 }
 
-export async function getBrowserJobStatus(jobId: string, sessionToken: string): Promise<BrowserJobStatus> {
+function resumeHeaders(resumeToken: string) {
+  return {
+    "content-type": "application/json",
+    "x-zobdino-resume": resumeToken,
+  };
+}
+
+function browserStorageAvailable() {
+  return typeof window !== "undefined" && Boolean(window.localStorage);
+}
+
+export function readPrivateLibrary(): PrivateLibraryItem[] {
+  if (!browserStorageAvailable()) return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(PRIVATE_LIBRARY_KEY) ?? "[]") as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is PrivateLibraryItem => {
+      const row = item as Partial<PrivateLibraryItem>;
+      return Boolean(row.jobId && row.resumeToken && row.fileName && row.createdAt && row.lastOpenedAt);
+    });
+  } catch {
+    return [];
+  }
+}
+
+function persistPrivateLibrary(items: PrivateLibraryItem[]) {
+  if (!browserStorageAvailable()) return;
+  window.localStorage.setItem(PRIVATE_LIBRARY_KEY, JSON.stringify(items.slice(0, 50)));
+}
+
+export function rememberPrivateJob(input: {
+  jobId: string;
+  resumeToken: string;
+  fileName: string;
+}) {
+  const now = new Date().toISOString();
+  const existing = readPrivateLibrary().filter((item) => item.jobId !== input.jobId);
+  persistPrivateLibrary([
+    {
+      jobId: input.jobId,
+      resumeToken: input.resumeToken,
+      fileName: input.fileName,
+      createdAt: now,
+      lastOpenedAt: now,
+    },
+    ...existing,
+  ]);
+}
+
+export function forgetPrivateJob(jobId: string) {
+  persistPrivateLibrary(readPrivateLibrary().filter((item) => item.jobId !== jobId));
+}
+
+function touchPrivateJob(jobId: string) {
+  const now = new Date().toISOString();
+  persistPrivateLibrary(
+    readPrivateLibrary()
+      .map((item) => item.jobId === jobId ? { ...item, lastOpenedAt: now } : item)
+      .sort((a, b) => b.lastOpenedAt.localeCompare(a.lastOpenedAt)),
+  );
+}
+
+async function getJobStatusWithHeaders(jobId: string, headers: HeadersInit): Promise<BrowserJobStatus> {
   const baseUrl = runtimeBaseUrl();
   const payload = await requestJson<{
     job?: {
@@ -97,7 +171,7 @@ export async function getBrowserJobStatus(jobId: string, sessionToken: string): 
     };
   }>(`${baseUrl}/v1/jobs/${encodeURIComponent(jobId)}`, {
     method: "GET",
-    headers: { "x-zobdino-session": sessionToken },
+    headers,
   });
 
   return {
@@ -110,15 +184,22 @@ export async function getBrowserJobStatus(jobId: string, sessionToken: string): 
   };
 }
 
-export async function fetchBrowserAudioSegment(
-  playbackPath: string,
-  sessionToken: string,
-): Promise<Blob> {
+export async function getBrowserJobStatus(jobId: string, sessionToken: string): Promise<BrowserJobStatus> {
+  return getJobStatusWithHeaders(jobId, { "x-zobdino-session": sessionToken });
+}
+
+export async function reopenPrivateJob(jobId: string, resumeToken: string): Promise<BrowserJobStatus> {
+  const status = await getJobStatusWithHeaders(jobId, { "x-zobdino-resume": resumeToken });
+  touchPrivateJob(jobId);
+  return status;
+}
+
+async function fetchAudioWithHeaders(playbackPath: string, headers: HeadersInit): Promise<Blob> {
   const baseUrl = runtimeBaseUrl();
   const normalizedPath = playbackPath.startsWith("/") ? playbackPath : `/${playbackPath}`;
   const response = await fetch(`${baseUrl}${normalizedPath}`, {
     method: "GET",
-    headers: { "x-zobdino-session": sessionToken },
+    headers,
     cache: "no-store",
   });
   if (!response.ok) {
@@ -126,6 +207,20 @@ export async function fetchBrowserAudioSegment(
     throw new BrowserRuntimeError(String(payload.error ?? "audio-playback-failed"), response.status);
   }
   return response.blob();
+}
+
+export async function fetchBrowserAudioSegment(
+  playbackPath: string,
+  sessionToken: string,
+): Promise<Blob> {
+  return fetchAudioWithHeaders(playbackPath, { "x-zobdino-session": sessionToken });
+}
+
+export async function fetchResumedAudioSegment(
+  playbackPath: string,
+  resumeToken: string,
+): Promise<Blob> {
+  return fetchAudioWithHeaders(playbackPath, { "x-zobdino-resume": resumeToken });
 }
 
 async function postJobAction(jobId: string, sessionToken: string, action: "advance" | "generate" | "finalize") {
@@ -207,7 +302,9 @@ export async function runBrowserIngestion(input: {
   });
 
   const jobId = created.job.jobId;
-  const receipt = await requestJson<Omit<BrowserRuntimeResult, "sessionToken">>(
+  rememberPrivateJob({ jobId, resumeToken: created.resumeToken, fileName: input.file.name });
+
+  const receipt = await requestJson<Omit<BrowserRuntimeResult, "sessionToken" | "resumeToken">>(
     `${baseUrl}/v1/jobs/${encodeURIComponent(jobId)}/content`,
     {
       method: "POST",
@@ -217,5 +314,11 @@ export async function runBrowserIngestion(input: {
   );
 
   const status = await driveBrowserJobToTerminal(jobId, session.token);
-  return { ...receipt, jobId, stage: status.stage, sessionToken: session.token };
+  return {
+    ...receipt,
+    jobId,
+    stage: status.stage,
+    sessionToken: session.token,
+    resumeToken: created.resumeToken,
+  };
 }
