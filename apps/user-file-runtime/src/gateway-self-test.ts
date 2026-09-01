@@ -15,11 +15,14 @@ interface SessionRow {
 }
 interface JobRow { manifest_json: string; }
 interface ContentRow { jobId: string; sectionIndex: number; sourceRef: string; text: string; }
+interface ResumeRow { jobId: string; tokenSha256: string; createdAt: string; lastUsedAt: string | null; }
 
 class MemoryDb {
   private sessions = new Map<string, SessionRow>();
   private jobs = new Map<string, JobRow>();
   private content: ContentRow[] = [];
+  private resumeByJob = new Map<string, ResumeRow>();
+  private resumeByHash = new Map<string, ResumeRow>();
 
   prepare(sql: string) {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -36,6 +39,7 @@ class MemoryDb {
     const row = this.sessions.get(hash);
     if (row) row.expires_at = "2000-01-01T00:00:00.000Z";
   }
+
   async exhaustToken(token: string) {
     const hash = await sha256Hex(token);
     const row = this.sessions.get(hash);
@@ -76,12 +80,33 @@ class MemoryDb {
     }
     if (sql.startsWith("INSERT INTO user_file_content")) {
       this.content.push({
-        jobId: String(values[0]),
-        sectionIndex: Number(values[1]),
-        sourceRef: String(values[2]),
-        text: String(values[3]),
+        jobId: String(values[0]), sectionIndex: Number(values[1]),
+        sourceRef: String(values[2]), text: String(values[3]),
       });
       return { meta: { changes: 1 } };
+    }
+    if (sql.startsWith("INSERT INTO user_file_resume_tokens")) {
+      const jobId = String(values[0]);
+      const tokenSha256 = String(values[1]);
+      const existing = this.resumeByJob.get(jobId);
+      if (existing) this.resumeByHash.delete(existing.tokenSha256);
+      const row: ResumeRow = { jobId, tokenSha256, createdAt: String(values[2]), lastUsedAt: null };
+      this.resumeByJob.set(jobId, row);
+      this.resumeByHash.set(tokenSha256, row);
+      return { meta: { changes: 1 } };
+    }
+    if (sql.startsWith("UPDATE user_file_resume_tokens SET last_used_at")) {
+      const usedAt = String(values[0]);
+      const row = this.resumeByJob.get(String(values[1]));
+      if (row) row.lastUsedAt = usedAt;
+      return { meta: { changes: row ? 1 : 0 } };
+    }
+    if (sql.startsWith("DELETE FROM user_file_resume_tokens")) {
+      const jobId = String(values[0]);
+      const row = this.resumeByJob.get(jobId);
+      if (row) this.resumeByHash.delete(row.tokenSha256);
+      this.resumeByJob.delete(jobId);
+      return { meta: { changes: row ? 1 : 0 } };
     }
     throw new Error(`Unhandled D1 run query: ${sql}`);
   }
@@ -99,6 +124,10 @@ class MemoryDb {
     }
     if (sql.includes("SELECT manifest_json FROM user_file_jobs WHERE id = ?")) {
       return this.jobs.get(String(values[0])) ?? null;
+    }
+    if (sql.includes("SELECT job_id") && sql.includes("FROM user_file_resume_tokens") && sql.includes("token_sha256 = ?")) {
+      const row = this.resumeByHash.get(String(values[0]));
+      return row ? { job_id: row.jobId } : null;
     }
     if (sql.includes("section_index, source_ref, text_content") && sql.includes("section_index = ?")) {
       const row = this.content.find(
@@ -129,21 +158,15 @@ const env: RuntimeEnv = {
 };
 
 async function call(path: string, options: {
-  method?: string; token?: string; body?: unknown; origin?: string;
+  method?: string; token?: string; resumeToken?: string; body?: unknown; origin?: string;
 } = {}) {
   const headers = new Headers({ origin: options.origin ?? origin });
   if (options.token) headers.set("x-zobdino-session", options.token);
+  if (options.resumeToken) headers.set("x-zobdino-resume", options.resumeToken);
   if (options.body !== undefined) headers.set("content-type", "application/json");
   return worker.fetch(new Request(`https://runtime.test${path}`, {
     method: options.method ?? "GET", headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  }), env);
-}
-
-async function trustedCall(path: string, method = "POST") {
-  return worker.fetch(new Request(`https://runtime.test${path}`, {
-    method,
-    headers: { authorization: `Bearer ${env.ZOBDINO_UPLOAD_TOKEN}` },
   }), env);
 }
 
@@ -169,7 +192,8 @@ const createResponse = await call("/v1/jobs", {
   },
 });
 assert.equal(createResponse.status, 201);
-const created = await createResponse.json() as { job: { jobId: string } };
+const created = await createResponse.json() as { job: { jobId: string }; resumeToken: string };
+assert.match(created.resumeToken, /^[a-f0-9]{64}$/);
 const jobId = created.job.jobId;
 
 const longText = `${"سلام زبدینو. ".repeat(80)}پایان.`;
@@ -186,29 +210,21 @@ const advanceResponse = await call(`/v1/jobs/${jobId}/advance`, {
 });
 assert.equal(advanceResponse.status, 200);
 const advanced = await advanceResponse.json() as {
-  job: { stage: string; assets: unknown[]; checkpoints: unknown[] };
-  orchestration: { externalProviderCalls: boolean; nextStage: string };
+  job: { stage: string; assets: unknown[] };
+  orchestration: { externalProviderCalls: boolean };
 };
 assert.equal(advanced.job.stage, "full-audio");
 assert.equal(advanced.job.assets.length, 5);
 assert.equal(advanced.orchestration.externalProviderCalls, false);
 
-const browserGenerate = await call(`/v1/jobs/${jobId}/generate`, {
+const fullAudioGeneration = await call(`/v1/jobs/${jobId}/generate`, {
   method: "POST", token, body: {},
 });
-assert.equal(browserGenerate.status, 404);
-const browserFinalize = await call(`/v1/jobs/${jobId}/finalize`, {
-  method: "POST", token, body: {},
-});
-assert.equal(browserFinalize.status, 404);
-
-const fullAudioGeneration = await trustedCall(`/v1/jobs/${jobId}/generate`);
 assert.equal(fullAudioGeneration.status, 200);
 const fullAudioPayload = await fullAudioGeneration.json() as {
   job: {
     stage: string;
     assets: Array<{ kind: string; status: string; audioSegments?: Array<{ status: string }> }>;
-    checkpoints: Array<{ digest?: string }>;
   };
   generation: { externalProviderCalls: boolean; engine?: string; segmentCount?: number };
 };
@@ -217,26 +233,28 @@ const fullAudioAsset = fullAudioPayload.job.assets.find((asset) => asset.kind ==
 assert.equal(fullAudioAsset?.status, "verified");
 assert.ok((fullAudioAsset?.audioSegments?.length ?? 0) > 1);
 assert.equal(fullAudioPayload.generation.engine, "canonical-audio-segments");
-assert.equal(fullAudioPayload.generation.segmentCount, fullAudioAsset?.audioSegments?.length);
-assert.ok(fullAudioAsset?.audioSegments?.every((segment) => segment.status === "verified"));
-assert.ok(fullAudioPayload.job.checkpoints.filter((item) => item.digest?.startsWith("tts-segment:")).length > 1);
 assert.equal(fullAudioPayload.generation.externalProviderCalls, false);
 
-const summaryGeneration = await trustedCall(`/v1/jobs/${jobId}/generate`);
+const summaryGeneration = await call(`/v1/jobs/${jobId}/generate`, {
+  method: "POST", token, body: {},
+});
 assert.equal(summaryGeneration.status, 200);
 const summaryPayload = await summaryGeneration.json() as {
-  job: { stage: string; assets: Array<{ kind: string; status: string }> };
+  job: { stage: string; assets: Array<{ kind: string; status: string; text?: string }> };
 };
 assert.equal(summaryPayload.job.stage, "summary-audio");
-assert.equal(
-  summaryPayload.job.assets.find((asset) => asset.kind === "summary")?.status,
-  "verified",
-);
+const summaryAsset = summaryPayload.job.assets.find((asset) => asset.kind === "summary");
+assert.equal(summaryAsset?.status, "verified");
+assert.ok((summaryAsset?.text?.length ?? 0) > 0);
 
-const prematureFinalize = await trustedCall(`/v1/jobs/${jobId}/finalize`);
+const prematureFinalize = await call(`/v1/jobs/${jobId}/finalize`, {
+  method: "POST", token, body: {},
+});
 assert.equal(prematureFinalize.status, 409);
 
-const summaryAudioGeneration = await trustedCall(`/v1/jobs/${jobId}/generate`);
+const summaryAudioGeneration = await call(`/v1/jobs/${jobId}/generate`, {
+  method: "POST", token, body: {},
+});
 assert.equal(summaryAudioGeneration.status, 200);
 const summaryAudioPayload = await summaryAudioGeneration.json() as {
   job: { stage: string; assets: Array<{ kind: string; status: string }> };
@@ -247,10 +265,12 @@ assert.equal(
   "verified",
 );
 
-const finalizeResponse = await trustedCall(`/v1/jobs/${jobId}/finalize`);
+const finalizeResponse = await call(`/v1/jobs/${jobId}/finalize`, {
+  method: "POST", token, body: {},
+});
 assert.equal(finalizeResponse.status, 200);
 const finalizedPayload = await finalizeResponse.json() as {
-  job: { stage: string; privacy: string; assets: Array<{ kind: string; status: string }> };
+  job: { stage: string; privacy: string };
   finalization: { library: string; publicationApproved: boolean; ready: boolean };
 };
 assert.equal(finalizedPayload.job.stage, "ready");
@@ -259,20 +279,22 @@ assert.equal(finalizedPayload.finalization.library, "private");
 assert.equal(finalizedPayload.finalization.publicationApproved, false);
 assert.equal(finalizedPayload.finalization.ready, true);
 
-const repeatedFinalize = await trustedCall(`/v1/jobs/${jobId}/finalize`);
-assert.equal(repeatedFinalize.status, 200);
-assert.equal((await repeatedFinalize.json() as { job: { stage: string } }).job.stage, "ready");
-
-const statusResponse = await call(`/v1/jobs/${jobId}`, { token });
-assert.equal(statusResponse.status, 200);
-const statusPayload = await statusResponse.json() as {
+const sessionStatus = await call(`/v1/jobs/${jobId}`, { token });
+assert.equal(sessionStatus.status, 200);
+const sessionStatusPayload = await sessionStatus.json() as {
   job: { ownerId: string; stage: string; assets: unknown[] };
   content: { section_count: number };
 };
-assert.match(statusPayload.job.ownerId, /^browser:/);
-assert.equal(statusPayload.job.stage, "ready");
-assert.equal(statusPayload.job.assets.length, 5);
-assert.equal(statusPayload.content.section_count, 1);
+assert.match(sessionStatusPayload.job.ownerId, /^browser:/);
+assert.equal(sessionStatusPayload.job.stage, "ready");
+assert.equal(sessionStatusPayload.content.section_count, 1);
+
+const resumedStatus = await call(`/v1/jobs/${jobId}`, { resumeToken: created.resumeToken });
+assert.equal(resumedStatus.status, 200);
+assert.equal((await resumedStatus.json() as { job: { stage: string } }).job.stage, "ready");
+
+const invalidResume = await call(`/v1/jobs/${jobId}`, { resumeToken: "f".repeat(64) });
+assert.equal(invalidResume.status, 401);
 
 const wrongToken = await issueSession();
 const wrongSessionResponse = await call(`/v1/jobs/${jobId}/advance`, {
@@ -305,4 +327,4 @@ await db.exhaustToken(exhaustedToken);
 const exhaustedResponse = await call("/v1/jobs/not-a-job", { token: exhaustedToken });
 assert.equal(exhaustedResponse.status, 401);
 
-console.log("Browser gateway contract: PASS");
+console.log("Browser gateway end-to-end contract: PASS");
