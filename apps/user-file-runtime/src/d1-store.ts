@@ -13,9 +13,11 @@ export interface StoredContentSection {
 }
 
 export class D1JobStore {
-  constructor(
-    private readonly db: RuntimeEnv["ZOBDINO_DB"],
-  ) {}
+  private readonly db: RuntimeEnv["ZOBDINO_DB"];
+
+  constructor(db: RuntimeEnv["ZOBDINO_DB"]) {
+    this.db = db;
+  }
 
   async create(job: UserFileJobManifest) {
     await this.db
