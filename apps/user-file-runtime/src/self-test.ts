@@ -117,9 +117,20 @@ const summaryJob: UserFileJobManifest = {
   ],
 };
 
+const summarySourceSections = [
+  {
+    sourceRef: "page:1",
+    text: "این یک متن آزمایشی برای بررسی مسیر خلاصه‌سازی واقعی زبدینو است.",
+  },
+  {
+    sourceRef: "page:2",
+    text: "این بخش دوم برای بررسی شواهد منبع و قابلیت ردیابی خلاصه است.",
+  },
+];
+
 const summarized = await runVerifiedSummaryStage({
   job: summaryJob,
-  sourceText: "این یک متن آزمایشی برای بررسی مسیر خلاصه‌سازی واقعی زبدینو است.",
+  sourceSections: summarySourceSections,
   provider: offlinePersianSummaryProvider(),
 });
 
@@ -129,6 +140,10 @@ assert.equal(summaryAsset?.status, "verified");
 assert.ok(summaryAsset?.text?.startsWith("خلاصهٔ آزمایشی زبدینو:"));
 assert.equal(summaryAsset?.provenance?.provider, "offline-test");
 assert.ok(summaryAsset?.sha256);
+assert.deepEqual(summaryAsset?.evidence?.map((item) => item.sourceRef), ["page:1", "page:2"]);
+assert.ok(summaryAsset?.evidence?.every((item) => /^[a-f0-9]{64}$/.test(item.sourceSha256)));
+assert.equal(summaryAsset?.evidence?.[0]?.startOffset, 0);
+assert.ok((summaryAsset?.evidence?.[1]?.startOffset ?? 0) > (summaryAsset?.evidence?.[0]?.endOffset ?? 0));
 
 const offlineVoiceProvider: VoiceProvider = {
   id: "summary-self-test-voice",
@@ -169,5 +184,5 @@ assert.equal(summaryAudioAsset?.status, "verified");
 assert.ok((summaryAudioAsset?.audioSegments?.length ?? 0) > 0);
 
 console.log(
-  "Secure upload runtime foundation + verified summary audio: PASS",
+  "Secure upload runtime foundation + source-grounded summary + verified summary audio: PASS",
 );

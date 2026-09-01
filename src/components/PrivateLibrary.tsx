@@ -4,6 +4,7 @@ import { BookOpen, LoaderCircle, LockKeyhole, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import RuntimeAssetPlayer from "@/components/RuntimeAssetPlayer";
+import SourceEvidenceList from "@/components/SourceEvidenceList";
 import {
   BrowserRuntimeError,
   forgetPrivateJob,
@@ -69,7 +70,7 @@ export default function PrivateLibrary() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="grid size-10 place-items-center rounded-2xl bg-violet-500/10 text-violet-600 dark:text-violet-300"><LockKeyhole size={20} /></div>
-          <div><h2 className="font-black">کتابخانه خصوصی من</h2><p className="mt-1 text-xs text-zinc-500">فایل‌های این مرورگر با دسترسی job-scoped دوباره باز می‌شوند.</p></div>
+          <div><h2 className="font-black">کتابخانه خصوصی من</h2><p className="mt-1 text-xs text-zinc-500">فایل‌های این مرورگر با دسترسی اختصاصی دوباره باز می‌شوند.</p></div>
         </div>
         <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-bold dark:bg-white/10">{items.length.toLocaleString("fa-IR")} فایل</span>
       </div>
@@ -100,15 +101,19 @@ export default function PrivateLibrary() {
           <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs text-zinc-500">فایل بازشده</p><h3 className="mt-1 font-black" dir="ltr">{active.fileName}</h3></div><span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-600">{stageLabel(status.stage)}</span></div>
           {verifiedAssets.length ? (
             <div className="mt-5 grid gap-4 lg:grid-cols-2">
-              {verifiedAssets.map((asset) => (
-                <article key={asset.id} className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
-                  <p className="font-black">{asset.kind === "summary" ? "خلاصه فارسی" : asset.kind === "summary-audio" ? "خلاصه صوتی" : asset.kind === "full-audio" ? "روایت کامل" : asset.kind}</p>
-                  {asset.kind === "summary" && asset.text ? <p className="mt-3 whitespace-pre-wrap text-sm leading-8 text-zinc-600 dark:text-zinc-300">{asset.text}</p> : null}
-                  {(asset.kind === "summary-audio" || asset.kind === "full-audio") ? <RuntimeAssetPlayer asset={asset} resumeToken={active.resumeToken} /> : null}
-                </article>
-              ))}
+              {verifiedAssets.map((asset) => {
+                const evidence = (asset as typeof asset & { evidence?: unknown }).evidence;
+                return (
+                  <article key={asset.id} className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
+                    <p className="font-black">{asset.kind === "summary" ? "خلاصه فارسی" : asset.kind === "summary-audio" ? "خلاصه صوتی" : asset.kind === "full-audio" ? "روایت کامل" : asset.kind}</p>
+                    {asset.kind === "summary" && asset.text ? <p className="mt-3 whitespace-pre-wrap text-sm leading-8 text-zinc-600 dark:text-zinc-300">{asset.text}</p> : null}
+                    {asset.kind === "summary" ? <SourceEvidenceList evidence={evidence} /> : null}
+                    {(asset.kind === "summary-audio" || asset.kind === "full-audio") ? <RuntimeAssetPlayer asset={asset} resumeToken={active.resumeToken} /> : null}
+                  </article>
+                );
+              })}
             </div>
-          ) : <p className="mt-5 text-sm text-zinc-500">خروجی تأییدشده‌ای برای این job ثبت نشده است.</p>}
+          ) : <p className="mt-5 text-sm text-zinc-500">خروجی تأییدشده‌ای برای این پردازش ثبت نشده است.</p>}
         </div>
       ) : null}
     </section>
