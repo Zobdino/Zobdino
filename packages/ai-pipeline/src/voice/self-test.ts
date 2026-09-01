@@ -1,9 +1,14 @@
 import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
+import { canonicalVoiceId, APPROVED_PRODUCTION_VOICE_IDS } from "./approved-voices.ts";
 import { AVAYAR_VOICE_MAP, type VoiceProvider, type VoiceRequest, type VoiceResult } from "./contracts.ts";
 import { VoiceService } from "./service.ts";
 
 const golden = "سلام. این یک متن معیار فارسی برای سنجش قرارداد روایت زبدینو و آوایار است.";
+
+assert.deepEqual(APPROVED_PRODUCTION_VOICE_IDS, ["sulafat", "schedar"]);
+assert.equal(canonicalVoiceId("iapetus"), "schedar");
+assert.equal(canonicalVoiceId("unknown"), null);
 
 class FakeProvider implements VoiceProvider {
   readonly id = "fake";
@@ -30,7 +35,7 @@ class FakeProvider implements VoiceProvider {
   }
 }
 
-for (const voiceId of ["sulafat", "iapetus"] as const) {
+for (const voiceId of APPROVED_PRODUCTION_VOICE_IDS) {
   const provider = new FakeProvider();
   const service = new VoiceService(provider, { maxAttempts: 2 });
   const result = await service.narrate({
@@ -58,4 +63,4 @@ await assert.rejects(
   /voice-text-empty/,
 );
 
-console.log("Shared Persian voice contract: PASS");
+console.log("Shared Persian voice contract: Sulafat + Schedar PASS");
