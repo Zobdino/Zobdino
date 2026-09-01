@@ -11,20 +11,21 @@ interface CreateJobResponse {
   job: { jobId: string };
 }
 
+export interface BrowserRuntimeAudioSegment {
+  id?: string;
+  status?: string;
+  durationMs?: number;
+  mimeType?: string;
+  playbackPath?: string;
+}
+
 export interface BrowserRuntimeAsset {
   id: string;
   kind: string;
   status: string;
-  uri?: string;
   bytes?: number;
   text?: string;
-  audioSegments?: Array<{
-    id?: string;
-    status?: string;
-    durationMs?: number;
-    mimeType?: string;
-    uri?: string;
-  }>;
+  audioSegments?: BrowserRuntimeAudioSegment[];
 }
 
 export interface BrowserJobStatus {
@@ -106,6 +107,24 @@ export async function getBrowserJobStatus(jobId: string, sessionToken: string): 
   };
 }
 
+export async function fetchBrowserAudioSegment(
+  playbackPath: string,
+  sessionToken: string,
+): Promise<Blob> {
+  const baseUrl = runtimeBaseUrl();
+  const normalizedPath = playbackPath.startsWith("/") ? playbackPath : `/${playbackPath}`;
+  const response = await fetch(`${baseUrl}${normalizedPath}`, {
+    method: "GET",
+    headers: { "x-zobdino-session": sessionToken },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+    throw new BrowserRuntimeError(String(payload.error ?? "audio-playback-failed"), response.status);
+  }
+  return response.blob();
+}
+
 async function postJobAction(jobId: string, sessionToken: string, action: "advance" | "generate" | "finalize") {
   const baseUrl = runtimeBaseUrl();
   return requestJson<Record<string, unknown>>(
@@ -165,7 +184,8 @@ export async function runBrowserIngestion(input: {
   });
 
   const headers = sessionHeaders(session.token);
-  const format = input.file.name.toLowerCase().endsWith(".md") ? "markdown" : "txt";
+  const lowerName = input.file.name.toLowerCase();
+  const format = lowerName.endsWith(".md") ? "markdown" : "txt";
   const fileSha256 = await sha256(await input.file.arrayBuffer());
 
   const created = await requestJson<CreateJobResponse>(`${baseUrl}/v1/jobs`, {
