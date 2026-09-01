@@ -14,6 +14,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import RuntimeAssetPlayer from "@/components/RuntimeAssetPlayer";
+import SourceEvidenceList from "@/components/SourceEvidenceList";
 import {
   canonicalSections,
   readBrowserDocumentText,
@@ -79,16 +80,29 @@ const STAGE_LABELS: Record<string, string> = {
   failed: "ناموفق",
 };
 
+const FILE_ACCEPT = [
+  ".txt",
+  ".md",
+  ".docx",
+  ".pdf",
+  ".epub",
+  "text/plain",
+  "text/markdown",
+  "application/pdf",
+  "application/epub+zip",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+].join(",");
+
 function runtimeErrorMessage(error: unknown) {
   if (!(error instanceof BrowserRuntimeError)) return "ارتباط امن با سرویس پردازش برقرار نشد. دوباره تلاش کنید.";
   switch (error.code) {
-    case "runtime-not-configured": return "Runtime این محیط هنوز تنظیم نشده است.";
+    case "runtime-not-configured": return "سامانه پردازش این محیط هنوز تنظیم نشده است.";
     case "session-issuance-limit": return "تعداد درخواست‌های شروع پردازش بیش از حد مجاز است. چند دقیقه دیگر دوباره تلاش کنید.";
     case "expired-or-invalid-session":
     case "invalid-session": return "نشست امن منقضی شده است. پردازش را دوباره شروع کنید.";
     case "content-sha256-mismatch": return "اثر انگشت محتوای ارسالی تطابق ندارد؛ فایل دوباره بررسی شود.";
-    case "origin-not-allowed": return "این دامنه اجازه دسترسی به Runtime زبدینو را ندارد.";
-    default: return "Runtime درخواست را نپذیرفت. دوباره تلاش کنید.";
+    case "origin-not-allowed": return "این دامنه اجازه دسترسی به سامانه پردازش زبدینو را ندارد.";
+    default: return "سامانه پردازش درخواست را نپذیرفت. دوباره تلاش کنید.";
   }
 }
 
@@ -106,6 +120,20 @@ function assetTitle(kind: string) {
   if (kind === "transcript") return "رونوشت";
   if (kind === "chapter-map") return "فصل‌بندی";
   return kind;
+}
+
+function filePolicy(file: File) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".pdf") || file.type === "application/pdf") {
+    return { maxBytes: 25_000_000, sizeMessage: "حجم PDF باید کمتر از ۲۵ مگابایت باشد.", extractMessage: "متن PDF قابل استخراج نیست. فایل باید متن قابل‌خواندن داشته باشد." };
+  }
+  if (name.endsWith(".epub") || file.type === "application/epub+zip") {
+    return { maxBytes: 20_000_000, sizeMessage: "حجم EPUB باید کمتر از ۲۰ مگابایت باشد.", extractMessage: "متن EPUB قابل استخراج نیست. ساختار کتاب الکترونیکی را بررسی کنید." };
+  }
+  if (name.endsWith(".docx") || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+    return { maxBytes: 8_000_000, sizeMessage: "حجم DOCX باید کمتر از ۸ مگابایت باشد.", extractMessage: "متن DOCX قابل استخراج نیست. ساختار فایل را بررسی کنید." };
+  }
+  return { maxBytes: 1_000_000, sizeMessage: "حجم فایل متنی باید کمتر از ۱ مگابایت باشد.", extractMessage: "متن فایل قابل پردازش نیست. محتوای فایل را بررسی کنید." };
 }
 
 export default function UserFileIngestion() {
@@ -156,14 +184,14 @@ export default function UserFileIngestion() {
 
     if (!supportedTextFile(file)) {
       setStatus("error");
-      setMessage("فرمت فایل پشتیبانی نمی‌شود. TXT، Markdown یا DOCX انتخاب کنید.");
+      setMessage("فرمت فایل پشتیبانی نمی‌شود. TXT، Markdown، DOCX، PDF یا EPUB انتخاب کنید.");
       return;
     }
-    const isDocx = file.name.toLowerCase().endsWith(".docx");
-    const maxBytes = isDocx ? 8_000_000 : 1_000_000;
-    if (file.size > maxBytes) {
+
+    const policy = filePolicy(file);
+    if (file.size > policy.maxBytes) {
       setStatus("error");
-      setMessage(isDocx ? "حجم DOCX باید کمتر از هشت مگابایت باشد." : "حجم متن باید کمتر از یک مگابایت باشد.");
+      setMessage(policy.sizeMessage);
       return;
     }
 
@@ -177,7 +205,7 @@ export default function UserFileIngestion() {
       setStatus("ready");
     } catch {
       setStatus("error");
-      setMessage(isDocx ? "متن DOCX قابل استخراج نیست. ساختار فایل را بررسی کنید." : "متن فایل قابل پردازش نیست. محتوای فایل را بررسی کنید.");
+      setMessage(policy.extractMessage);
     }
   }
 
@@ -228,7 +256,7 @@ export default function UserFileIngestion() {
 
         <section className="rounded-3xl border border-black/10 bg-white/80 p-5 shadow-sm dark:border-white/10 dark:bg-zinc-950/80">
           <div className="flex items-center gap-2 text-violet-600 dark:text-violet-300"><LockKeyhole size={19} /><h2 className="font-black">امنیت پردازش</h2></div>
-          <p className="mt-4 text-sm leading-7 text-zinc-500">نشست مرورگر محدود است، مالکیت هر job به همان نشست متصل می‌شود و فایل صوتی فقط پس از بررسی مالکیت از مسیر خصوصی پخش می‌شود.</p>
+          <p className="mt-4 text-sm leading-7 text-zinc-500">نشست مرورگر محدود است، مالکیت هر پردازش به همان نشست متصل می‌شود و فایل صوتی فقط پس از بررسی مالکیت از مسیر خصوصی پخش می‌شود.</p>
         </section>
       </aside>
 
@@ -239,8 +267,9 @@ export default function UserFileIngestion() {
             <label className="flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed border-violet-400/50 bg-violet-50/50 p-6 text-center transition hover:border-violet-500 dark:bg-violet-950/10">
               <UploadCloud className="mb-3 text-violet-500" size={42} />
               <span className="text-lg font-black">فایل خود را اینجا رها کنید</span>
-              <span className="mt-2 text-sm text-zinc-500">یا برای انتخاب TXT / Markdown / DOCX کلیک کنید</span>
-              <input className="sr-only" type="file" accept=".txt,.md,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document" disabled={busy} onChange={(event) => void prepare(event.target.files?.[0])} />
+              <span className="mt-2 text-sm text-zinc-500">یا برای انتخاب TXT، Markdown، DOCX، PDF یا EPUB کلیک کنید</span>
+              <span className="mt-2 text-xs text-zinc-400">PDF تا ۲۵ مگابایت · EPUB تا ۲۰ مگابایت · DOCX تا ۸ مگابایت</span>
+              <input className="sr-only" type="file" accept={FILE_ACCEPT} disabled={busy} onChange={(event) => void prepare(event.target.files?.[0])} />
             </label>
 
             {fileName && (
@@ -269,7 +298,7 @@ export default function UserFileIngestion() {
               </div>
 
               {currentStage === "quota-paused" && (
-                <div className="mt-5 flex gap-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm"><PauseCircle className="shrink-0 text-amber-500" /><div><p className="font-black">پردازش به‌دلیل محدودیت سهمیه متوقف شده است</p><p className="mt-1 text-zinc-500">job و checkpointها حفظ شده‌اند و تکمیل جعلی نمایش داده نمی‌شود.</p></div></div>
+                <div className="mt-5 flex gap-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm"><PauseCircle className="shrink-0 text-amber-500" /><div><p className="font-black">پردازش به‌دلیل محدودیت سهمیه متوقف شده است</p><p className="mt-1 text-zinc-500">پردازش و نقطه‌های بازیابی حفظ شده‌اند و تکمیل جعلی نمایش داده نمی‌شود.</p></div></div>
               )}
               {message && <p className="mt-4 text-sm text-zinc-500" aria-live="polite">{message}</p>}
             </div>
@@ -285,12 +314,13 @@ export default function UserFileIngestion() {
         </section>
 
         <section className="rounded-[2rem] border border-black/10 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#10131d] md:p-7">
-          <div className="flex items-center justify-between"><h2 className="font-black">خروجی‌های آماده</h2><span className="text-xs text-zinc-500">فقط assetهای verified نمایش داده می‌شوند</span></div>
+          <div className="flex items-center justify-between"><h2 className="font-black">خروجی‌های آماده</h2><span className="text-xs text-zinc-500">فقط خروجی‌های تأییدشده نمایش داده می‌شوند</span></div>
           {verifiedAssets.length ? (
             <div className="mt-5 grid gap-4 lg:grid-cols-2">
               {verifiedAssets.map((asset) => {
                 const isAudio = asset.kind === "full-audio" || asset.kind === "summary-audio";
                 const hasText = Boolean(asset.text?.trim());
+                const evidence = (asset as typeof asset & { evidence?: unknown }).evidence;
                 return (
                   <article key={asset.id} className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -308,6 +338,8 @@ export default function UserFileIngestion() {
                       </div>
                     ) : null}
 
+                    {asset.kind === "summary" ? <SourceEvidenceList evidence={evidence} /> : null}
+
                     {isAudio && runtimeReceipt ? (
                       <RuntimeAssetPlayer asset={asset} sessionToken={runtimeReceipt.sessionToken} />
                     ) : null}
@@ -316,7 +348,7 @@ export default function UserFileIngestion() {
               })}
             </div>
           ) : (
-            <div className="mt-5 rounded-2xl border border-dashed border-black/10 p-8 text-center text-sm text-zinc-500 dark:border-white/10">خروجی تأییدشده‌ای هنوز آماده نیست. این بخش فقط وضعیت واقعی Runtime را نشان می‌دهد.</div>
+            <div className="mt-5 rounded-2xl border border-dashed border-black/10 p-8 text-center text-sm text-zinc-500 dark:border-white/10">خروجی تأییدشده‌ای هنوز آماده نیست. این بخش فقط وضعیت واقعی سامانه پردازش را نشان می‌دهد.</div>
           )}
         </section>
       </div>
