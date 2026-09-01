@@ -96,13 +96,6 @@ function sessionHeaders(sessionToken: string) {
   };
 }
 
-function resumeHeaders(resumeToken: string) {
-  return {
-    "content-type": "application/json",
-    "x-zobdino-resume": resumeToken,
-  };
-}
-
 function browserStorageAvailable() {
   return typeof window !== "undefined" && Boolean(window.localStorage);
 }
@@ -266,6 +259,15 @@ export async function driveBrowserJobToTerminal(
   return getBrowserJobStatus(jobId, sessionToken);
 }
 
+function browserFileFormat(file: File) {
+  const lowerName = file.name.toLowerCase();
+  if (lowerName.endsWith(".md") || lowerName.endsWith(".markdown")) return "markdown";
+  if (lowerName.endsWith(".docx")) return "docx";
+  if (lowerName.endsWith(".pdf")) return "pdf";
+  if (lowerName.endsWith(".epub")) return "epub";
+  return "txt";
+}
+
 export async function runBrowserIngestion(input: {
   file: File;
   sections: BrowserSection[];
@@ -282,8 +284,7 @@ export async function runBrowserIngestion(input: {
   });
 
   const headers = sessionHeaders(session.token);
-  const lowerName = input.file.name.toLowerCase();
-  const format = lowerName.endsWith(".md") ? "markdown" : "txt";
+  const format = browserFileFormat(input.file);
   const fileSha256 = await sha256(await input.file.arrayBuffer());
 
   const created = await requestJson<CreateJobResponse>(`${baseUrl}/v1/jobs`, {
