@@ -13,10 +13,15 @@ on:
         required: false
         default: ""
         type: string
+      auto_resume_remaining:
+        description: Automatic quota-safe continuation hops remaining
+        required: false
+        default: "3"
+        type: string
 
 permissions:
   contents: read
-  actions: read
+  actions: write
 
 concurrency:
   group: zobdino-dual-voice-quota-safe
@@ -159,6 +164,40 @@ jobs:
           jq -e '.schemaVersion == 1 and .state == "quota-paused" and .batch == "${{ inputs.batch }}"' \
             .dual-voice/quota-paused.json >/dev/null
           echo "Quota-paused manifest PASS"
+
+      - name: Auto-dispatch bounded continuation
+        if: ${{ steps.generate.outputs.quota_paused == 'true' }}
+        shell: bash
+        env:
+          AUTO_RESUME_REMAINING: ${{ inputs.auto_resume_remaining }}
+        run: |
+          set -euo pipefail
+          [[ "$AUTO_RESUME_REMAINING" =~ ^[0-9]+$ ]] || {
+            echo "::error::auto_resume_remaining must be a non-negative integer."
+            exit 1
+          }
+
+          if (( AUTO_RESUME_REMAINING <= 0 )); then
+            echo "Automatic continuation budget exhausted; durable checkpoint remains available."
+            exit 0
+          fi
+
+          RETRY_AFTER_MS="$(jq -r '.retryAfterMs // 15000' .dual-voice/quota-paused.json)"
+          [[ "$RETRY_AFTER_MS" =~ ^[0-9]+$ ]] || RETRY_AFTER_MS=15000
+          WAIT_SECONDS=$(( (RETRY_AFTER_MS + 999) / 1000 + 5 ))
+          if (( WAIT_SECONDS < 10 )); then WAIT_SECONDS=10; fi
+          if (( WAIT_SECONDS > 60 )); then WAIT_SECONDS=60; fi
+          NEXT_REMAINING=$(( AUTO_RESUME_REMAINING - 1 ))
+
+          echo "Quota-safe continuation: waiting ${WAIT_SECONDS}s, then dispatching from run ${GITHUB_RUN_ID}; remaining hops=${NEXT_REMAINING}."
+          sleep "$WAIT_SECONDS"
+
+          gh workflow run dual-voice-quota-safe.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME" \
+            -f batch="${{ inputs.batch }}" \
+            -f resume_run_id="$GITHUB_RUN_ID" \
+            -f auto_resume_remaining="$NEXT_REMAINING"
 
       - name: Generation completed
         if: ${{ steps.generate.outputs.completed == 'true' }}
