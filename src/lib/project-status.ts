@@ -16,10 +16,10 @@ export const projectStatus = {
   },
   currentMilestone: {
     title: "Dual-Voice Batch A",
-    issueNumber: 53,
+    issueNumber: 151,
     issueUrl:
-      "https://github.com/AmirMotefaker/KetabCast/issues/53",
+      "https://github.com/Zobdino/Zobdino/issues/151",
   },
   releasesUrl:
-    "https://github.com/AmirMotefaker/KetabCast/releases",
+    "https://github.com/Zobdino/Zobdino/releases",
 } as const;
