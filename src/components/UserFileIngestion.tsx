@@ -7,7 +7,6 @@ import {
   FileText,
   LoaderCircle,
   LockKeyhole,
-  PauseCircle,
   ShieldCheck,
   UploadCloud,
 } from "lucide-react";
@@ -15,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import RuntimeAssetPlayer from "@/components/RuntimeAssetPlayer";
 import SourceEvidenceList from "@/components/SourceEvidenceList";
+import UserFileJourneyStatus from "@/components/UserFileJourneyStatus";
 import {
   canonicalSections,
   readBrowserDocumentText,
@@ -63,22 +63,6 @@ const STAGES = [
   "quality-check",
   "ready",
 ] as const;
-
-const STAGE_LABELS: Record<string, string> = {
-  received: "ثبت فایل",
-  validating: "اعتبارسنجی",
-  extracting: "استخراج متن",
-  normalizing: "آماده‌سازی",
-  indexing: "ساخت نمایه",
-  planning: "برنامه‌ریزی خروجی",
-  "full-audio": "تولید صوت کامل",
-  summarizing: "ساخت خلاصه",
-  "summary-audio": "تولید خلاصه صوتی",
-  "quality-check": "کنترل کیفیت",
-  ready: "آماده",
-  "quota-paused": "مکث سهمیه",
-  failed: "ناموفق",
-};
 
 const FILE_ACCEPT = [
   ".txt",
@@ -146,6 +130,7 @@ export default function UserFileIngestion() {
   const [mode, setMode] = useState<IngestionMode>("both");
   const [voice, setVoice] = useState<IngestionVoice>("sulafat");
   const [rights, setRights] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (!runtimeReceipt) return;
@@ -172,6 +157,21 @@ export default function UserFileIngestion() {
       if (timer) clearTimeout(timer);
     };
   }, [runtimeReceipt]);
+
+  async function refreshStatus() {
+    if (!runtimeReceipt) return;
+    setRefreshing(true);
+    setMessage("");
+    try {
+      const next = await getBrowserJobStatus(runtimeReceipt.jobId, runtimeReceipt.sessionToken);
+      setJobStatus(next);
+      setMessage(next.stage === "ready" ? "پردازش کامل شد و خروجی‌های تأییدشده آماده‌اند." : "آخرین وضعیت پردازش دریافت شد.");
+    } catch (error) {
+      setMessage(runtimeErrorMessage(error));
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function prepare(file: File | undefined) {
     if (!file) return;
@@ -242,8 +242,8 @@ export default function UserFileIngestion() {
   const verifiedAssets = useMemo(() => jobStatus?.assets.filter((asset) => asset.status === "verified") ?? [], [jobStatus]);
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
-      <aside className="order-2 space-y-4 xl:order-1">
+    <div className="grid min-w-0 gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+      <aside className="order-2 min-w-0 space-y-4 xl:order-1">
         <section className="rounded-3xl border border-black/10 bg-white/80 p-5 shadow-sm backdrop-blur dark:border-white/10 dark:bg-zinc-950/80">
           <div className="flex items-center gap-2 text-violet-600 dark:text-violet-300"><FileText size={19} /><h2 className="font-black">جزئیات فایل</h2></div>
           <dl className="mt-5 space-y-3 text-sm">
@@ -260,11 +260,11 @@ export default function UserFileIngestion() {
         </section>
       </aside>
 
-      <div className="order-1 space-y-5 xl:order-2">
+      <div className="order-1 min-w-0 space-y-5 xl:order-2">
         <section className="overflow-hidden rounded-[2rem] border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-[#10131d]">
           <div className="border-b border-black/10 px-5 py-4 dark:border-white/10"><h2 className="font-black">آپلود جدید</h2></div>
-          <div className="p-5 md:p-7">
-            <label className="flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed border-violet-400/50 bg-violet-50/50 p-6 text-center transition hover:border-violet-500 dark:bg-violet-950/10">
+          <div className="p-4 sm:p-5 md:p-7">
+            <label className="flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed border-violet-400/50 bg-violet-50/50 p-5 text-center transition hover:border-violet-500 dark:bg-violet-950/10 sm:p-6">
               <UploadCloud className="mb-3 text-violet-500" size={42} />
               <span className="text-lg font-black">فایل خود را اینجا رها کنید</span>
               <span className="mt-2 text-sm text-zinc-500">یا برای انتخاب TXT، Markdown، DOCX، PDF یا EPUB کلیک کنید</span>
@@ -273,37 +273,22 @@ export default function UserFileIngestion() {
             </label>
 
             {fileName && (
-              <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-black/10 p-4 dark:border-white/10">
+              <div className="mt-4 flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-black/10 p-4 dark:border-white/10">
                 <div className="min-w-0"><p className="truncate font-bold" dir="ltr">{fileName}</p><p className="text-xs text-zinc-500">{prepared ? `${prepared.sections.length.toLocaleString("fa-IR")} بخش آماده` : "در حال بررسی فایل"}</p></div>
-                {busy ? <LoaderCircle className="animate-spin text-violet-500" /> : prepared ? <CheckCircle2 className="text-emerald-500" /> : <Circle className="text-zinc-400" />}
+                {busy ? <LoaderCircle className="shrink-0 animate-spin text-violet-500" /> : prepared ? <CheckCircle2 className="shrink-0 text-emerald-500" /> : <Circle className="shrink-0 text-zinc-400" />}
               </div>
             )}
           </div>
         </section>
 
-        <section className="rounded-[2rem] border border-black/10 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#10131d] md:p-7">
-          <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
-            <div>
-              <div className="flex items-center justify-between gap-3"><h2 className="font-black">وضعیت پردازش</h2><span className="rounded-full bg-violet-500/10 px-3 py-1 text-xs font-bold text-violet-600 dark:text-violet-300">{STAGE_LABELS[currentStage] ?? currentStage}</span></div>
-              <div className="mt-5 h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-white/10"><div className="h-full rounded-full bg-violet-500 transition-all duration-500" style={{ width: `${progress}%` }} /></div>
-              <div className="mt-3 flex justify-between text-xs text-zinc-500"><span>پیشرفت کلی</span><span>{progress.toLocaleString("fa-IR")}%</span></div>
-
-              <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-5">
-                {["received", "validating", "full-audio", "quality-check", "ready"].map((stage) => {
-                  const stageIndex = STAGES.indexOf(stage as (typeof STAGES)[number]);
-                  const currentIndex = STAGES.indexOf(currentStage as (typeof STAGES)[number]);
-                  const done = currentStage === "ready" || (currentIndex >= 0 && currentIndex >= stageIndex);
-                  return <div key={stage} className="rounded-2xl border border-black/10 p-3 text-center dark:border-white/10">{done ? <CheckCircle2 className="mx-auto text-emerald-500" size={20} /> : <Circle className="mx-auto text-zinc-400" size={20} />}<p className="mt-2 text-xs font-bold">{STAGE_LABELS[stage]}</p></div>;
-                })}
-              </div>
-
-              {currentStage === "quota-paused" && (
-                <div className="mt-5 flex gap-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm"><PauseCircle className="shrink-0 text-amber-500" /><div><p className="font-black">پردازش به‌دلیل محدودیت سهمیه متوقف شده است</p><p className="mt-1 text-zinc-500">پردازش و نقطه‌های بازیابی حفظ شده‌اند و تکمیل جعلی نمایش داده نمی‌شود.</p></div></div>
-              )}
-              {message && <p className="mt-4 text-sm text-zinc-500" aria-live="polite">{message}</p>}
+        <section className="rounded-[2rem] border border-black/10 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#10131d] sm:p-5 md:p-7">
+          <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+            <div className="min-w-0">
+              <UserFileJourneyStatus stage={currentStage} progress={progress} onRetry={runtimeReceipt ? () => void refreshStatus() : undefined} retryDisabled={refreshing} />
+              {message && <p className="mt-4 break-words text-sm text-zinc-500" aria-live="polite">{message}</p>}
             </div>
 
-            <div className="rounded-3xl bg-zinc-950 p-5 text-white">
+            <div className="min-w-0 rounded-3xl bg-zinc-950 p-5 text-white">
               <div className="flex items-center gap-2"><ShieldCheck className="text-violet-400" /><h3 className="font-black">تنظیم خروجی</h3></div>
               <label className="mt-5 block text-sm font-bold">نوع خروجی<select value={mode} disabled={busy || Boolean(runtimeReceipt)} onChange={(event) => setMode(event.target.value as IngestionMode)} className="mt-2 w-full rounded-xl border border-white/15 bg-white/10 p-3"><option value="both">خلاصه صوتی + صوت کامل</option><option value="summary-podcast">فقط خلاصه صوتی</option><option value="full-audio">فقط صوت کامل</option></select></label>
               <label className="mt-4 block text-sm font-bold">صدای روایت<select value={voice} disabled={busy || Boolean(runtimeReceipt)} onChange={(event) => setVoice(event.target.value as IngestionVoice)} className="mt-2 w-full rounded-xl border border-white/15 bg-white/10 p-3"><option value="sulafat">سولافات — صدای زن</option><option value="schedar">شِدار — صدای مرد</option></select></label>
@@ -313,27 +298,27 @@ export default function UserFileIngestion() {
           </div>
         </section>
 
-        <section className="rounded-[2rem] border border-black/10 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#10131d] md:p-7">
-          <div className="flex items-center justify-between"><h2 className="font-black">خروجی‌های آماده</h2><span className="text-xs text-zinc-500">فقط خروجی‌های تأییدشده نمایش داده می‌شوند</span></div>
+        <section className="rounded-[2rem] border border-black/10 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#10131d] sm:p-5 md:p-7">
+          <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-black">خروجی‌های آماده</h2><span className="text-xs text-zinc-500">فقط خروجی‌های تأییدشده نمایش داده می‌شوند</span></div>
           {verifiedAssets.length ? (
-            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <div className="mt-5 grid min-w-0 gap-4 lg:grid-cols-2">
               {verifiedAssets.map((asset) => {
                 const isAudio = asset.kind === "full-audio" || asset.kind === "summary-audio";
                 const hasText = Boolean(asset.text?.trim());
                 const evidence = (asset as typeof asset & { evidence?: unknown }).evidence;
                 return (
-                  <article key={asset.id} className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
+                  <article key={asset.id} className="min-w-0 rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="min-w-0">
                         {isAudio ? <FileAudio className="text-violet-500" /> : <FileText className="text-violet-500" />}
-                        <h3 className="mt-3 font-black">{assetTitle(asset.kind)}</h3>
+                        <h3 className="mt-3 truncate font-black">{assetTitle(asset.kind)}</h3>
                         <p className="mt-1 text-xs text-emerald-600">تأییدشده</p>
                       </div>
-                      {asset.bytes ? <p className="text-xs text-zinc-500">{asset.bytes.toLocaleString("fa-IR")} بایت</p> : null}
+                      {asset.bytes ? <p className="shrink-0 text-xs text-zinc-500">{asset.bytes.toLocaleString("fa-IR")} بایت</p> : null}
                     </div>
 
                     {hasText ? (
-                      <div className="mt-4 max-h-64 overflow-y-auto rounded-xl border border-black/10 bg-white/70 p-4 text-sm leading-7 text-zinc-700 dark:border-white/10 dark:bg-black/20 dark:text-zinc-200">
+                      <div className="mt-4 max-h-64 overflow-y-auto break-words rounded-xl border border-black/10 bg-white/70 p-4 text-sm leading-7 text-zinc-700 dark:border-white/10 dark:bg-black/20 dark:text-zinc-200">
                         {asset.text}
                       </div>
                     ) : null}
@@ -348,7 +333,7 @@ export default function UserFileIngestion() {
               })}
             </div>
           ) : (
-            <div className="mt-5 rounded-2xl border border-dashed border-black/10 p-8 text-center text-sm text-zinc-500 dark:border-white/10">خروجی تأییدشده‌ای هنوز آماده نیست. این بخش فقط وضعیت واقعی سامانه پردازش را نشان می‌دهد.</div>
+            <div className="mt-5 rounded-2xl border border-dashed border-black/10 p-6 text-center text-sm text-zinc-500 dark:border-white/10 sm:p-8">خروجی تأییدشده‌ای هنوز آماده نیست. این بخش فقط وضعیت واقعی سامانه پردازش را نشان می‌دهد.</div>
           )}
         </section>
       </div>
