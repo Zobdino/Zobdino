@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
-import { Clock3, Headphones, LoaderCircle, Sparkles } from "lucide-react";
+import { Clock3, Headphones, LoaderCircle, Mic2, Sparkles } from "lucide-react";
 
 import AudioPlayer from "@/components/AudioPlayer";
 import TranscriptPanel from "@/components/player/TranscriptPanel";
+import { getEpisodeVoiceLabelFa, isProductionAudio } from "@/lib/audio";
 import { books } from "@/lib/books";
 import { episodes } from "@/lib/episodes";
+import { APPROVED_VOICE_PROFILES } from "@/lib/voices";
 
 export async function generateStaticParams() {
   return books.map((book) => ({ slug: book.slug }));
@@ -21,6 +23,9 @@ export default async function BookPage({
 
   const episode = episodes.find((item) => item.bookSlug === book.slug);
   const ready = episode?.audio.status === "ready";
+  const productionAudio = episode ? isProductionAudio(episode.audio) : false;
+  const voiceLabel = episode ? getEpisodeVoiceLabelFa(episode.audio) : null;
+  const approvedVoices = Object.values(APPROVED_VOICE_PROFILES);
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 md:py-14">
@@ -40,13 +45,19 @@ export default async function BookPage({
             </span>
             <span
               className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold ${
-                ready
+                productionAudio
                   ? "border-emerald-700 bg-emerald-950/40 text-emerald-300"
-                  : "border-amber-700 bg-amber-950/30 text-amber-300"
+                  : ready
+                    ? "border-amber-700 bg-amber-950/30 text-amber-300"
+                    : "border-zinc-700 bg-zinc-900/50 text-zinc-300"
               }`}
             >
               {ready ? <Headphones size={14} /> : <LoaderCircle size={14} />}
-              {ready ? "اپیزود آماده" : "در خط تولید AI"}
+              {productionAudio
+                ? "صوت نهایی تأییدشده"
+                : ready
+                  ? "صوت قدیمی؛ در انتظار جایگزینی"
+                  : "در خط تولید AI"}
             </span>
           </div>
 
@@ -73,6 +84,40 @@ export default async function BookPage({
               </span>
             </div>
           )}
+        </div>
+      </section>
+
+      <section className="mb-12 rounded-3xl border border-violet-500/20 bg-violet-500/5 p-5 md:p-7" aria-labelledby="voice-status-title">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold text-violet-300">لایه صوت زبدینو</p>
+            <h2 id="voice-status-title" className="mt-2 text-2xl font-extrabold">وضعیت صدا و مسیر جایگزینی</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-gray-400">
+              زبدینو فقط صدایی را «نهایی» اعلام می‌کند که به یکی از پروفایل‌های رسمی تأییدشده متصل باشد. فایل‌های قدیمی تا زمان انتشار immutable دوصدایی بدون برچسب نهایی باقی می‌مانند.
+            </p>
+          </div>
+          {voiceLabel ? (
+            <span className={`rounded-full border px-3 py-1.5 text-xs font-bold ${productionAudio ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-amber-500/30 bg-amber-500/10 text-amber-300"}`}>
+              صدای فعلی: {voiceLabel}
+            </span>
+          ) : null}
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {approvedVoices.map((voice) => (
+            <div key={voice.id} className="rounded-2xl border border-gray-800 bg-black/20 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="grid size-9 place-items-center rounded-xl bg-violet-500/10 text-violet-300"><Mic2 size={17} /></div>
+                  <div>
+                    <p className="font-bold">{voice.labelFa}</p>
+                    <p className="mt-1 text-xs text-gray-500" dir="ltr">{voice.providerVoice}</p>
+                  </div>
+                </div>
+                <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-bold text-emerald-300">Approved</span>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
 
