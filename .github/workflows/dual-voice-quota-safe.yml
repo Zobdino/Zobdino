@@ -112,38 +112,59 @@ jobs:
             --artifact-digest "$ARTIFACT_DIGEST" \
             --artifact-id "$ARTIFACT_ID"
 
-      - name: Generate with controlled quota pause
+      - name: Generate with bounded in-run quota backoff
         id: generate
         shell: bash
+        env:
+          IN_RUN_QUOTA_RETRIES: "3"
         run: |
-          set +e
+          set -euo pipefail
           RESUME_ARGS=()
           if [[ -f .dual-voice/resume-index.json ]]; then
             RESUME_ARGS=(--resume-metadata .dual-voice/resume-index.json)
           fi
 
-          node scripts/dual-voice-quota-safe-runner.mjs \
-            --mode generate \
-            --batch "${{ inputs.batch }}" \
-            --out .dual-voice \
-            "${RESUME_ARGS[@]}"
-          CODE=$?
-          set -e
+          attempt=0
+          while true; do
+            rm -f .dual-voice/quota-paused.json
+            set +e
+            node scripts/dual-voice-quota-safe-runner.mjs \
+              --mode generate \
+              --batch "${{ inputs.batch }}" \
+              --out .dual-voice \
+              "${RESUME_ARGS[@]}"
+            CODE=$?
+            set -e
 
-          if [[ "$CODE" == "75" ]]; then
-            echo "quota_paused=true" >> "$GITHUB_OUTPUT"
-            echo "completed=false" >> "$GITHUB_OUTPUT"
-            echo "Quota exhausted after preserving checkpoints; treating as controlled pause."
-            exit 0
-          fi
+            if [[ "$CODE" == "0" ]]; then
+              echo "quota_paused=false" >> "$GITHUB_OUTPUT"
+              echo "completed=true" >> "$GITHUB_OUTPUT"
+              echo "Generation completed inside the current workflow run."
+              exit 0
+            fi
 
-          if [[ "$CODE" != "0" ]]; then
-            echo "::error::Dual-voice generation failed with non-quota exit code $CODE."
-            exit "$CODE"
-          fi
+            if [[ "$CODE" != "75" ]]; then
+              echo "::error::Dual-voice generation failed with non-quota exit code $CODE."
+              exit "$CODE"
+            fi
 
-          echo "quota_paused=false" >> "$GITHUB_OUTPUT"
-          echo "completed=true" >> "$GITHUB_OUTPUT"
+            if (( attempt >= IN_RUN_QUOTA_RETRIES )); then
+              echo "quota_paused=true" >> "$GITHUB_OUTPUT"
+              echo "completed=false" >> "$GITHUB_OUTPUT"
+              echo "In-run quota retry budget exhausted; preserving durable checkpoint for cross-run continuation."
+              exit 0
+            fi
+
+            RETRY_AFTER_MS="$(jq -r '.retryAfterMs // 60000' .dual-voice/quota-paused.json 2>/dev/null || echo 60000)"
+            [[ "$RETRY_AFTER_MS" =~ ^[0-9]+$ ]] || RETRY_AFTER_MS=60000
+            WAIT_SECONDS=$(( (RETRY_AFTER_MS + 999) / 1000 + 8 ))
+            if (( WAIT_SECONDS < 20 )); then WAIT_SECONDS=20; fi
+            if (( WAIT_SECONDS > 120 )); then WAIT_SECONDS=120; fi
+            attempt=$(( attempt + 1 ))
+
+            echo "Short quota window detected; preserving in-workspace checkpoints and retrying in ${WAIT_SECONDS}s (${attempt}/${IN_RUN_QUOTA_RETRIES})."
+            sleep "$WAIT_SECONDS"
+          done
 
       - name: Upload durable checkpoint
         if: ${{ always() && (steps.generate.outputs.quota_paused == 'true' || failure()) }}
