@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Clock3, Headphones, LoaderCircle, Play } from "lucide-react";
 
+import { getEpisodeVoiceLabelFa, isProductionAudio } from "@/lib/audio";
 import { episodes } from "@/lib/episodes";
 import type { Book } from "@/lib/books";
 
@@ -11,7 +12,8 @@ interface BookCardProps {
 export default function BookCard({ book }: BookCardProps) {
   const episode = episodes.find((item) => item.bookSlug === book.slug);
   const ready = episode?.audio.status === "ready";
-  const legacyUnverifiedVoice = book.slug === "atomic-habits" && ready;
+  const productionAudio = episode ? isProductionAudio(episode.audio) : false;
+  const voiceLabel = episode ? getEpisodeVoiceLabelFa(episode.audio) : null;
 
   const durationLabel =
     episode && episode.audio.durationSeconds > 0
@@ -37,18 +39,18 @@ export default function BookCard({ book }: BookCardProps) {
 
           <span
             className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold backdrop-blur ${
-              legacyUnverifiedVoice
-                ? "border-amber-400/30 bg-amber-950/80 text-amber-200"
+              productionAudio
+                ? "border-emerald-400/30 bg-emerald-950/80 text-emerald-200"
                 : ready
-                  ? "border-emerald-400/30 bg-emerald-950/80 text-emerald-200"
-                  : "border-amber-400/30 bg-amber-950/80 text-amber-200"
+                  ? "border-amber-400/30 bg-amber-950/80 text-amber-200"
+                  : "border-zinc-500/30 bg-zinc-950/80 text-zinc-300"
             }`}
           >
             {ready ? <Headphones size={13} /> : <LoaderCircle size={13} />}
-            {legacyUnverifiedVoice
-              ? "صدای قدیمی؛ تأییدنشده"
+            {productionAudio
+              ? "صدای نهایی تأییدشده"
               : ready
-                ? "آماده شنیدن"
+                ? "صوت قدیمی؛ در انتظار جایگزینی"
                 : "در حال تولید"}
           </span>
         </div>
@@ -69,11 +71,14 @@ export default function BookCard({ book }: BookCardProps) {
         </h3>
         <p className="mt-2 text-sm text-gray-400">{book.authorFa}</p>
 
-        {legacyUnverifiedVoice && (
-          <p className="mt-3 text-xs leading-6 text-amber-300/90">
-            این فایل پیش از ثبت دو صدای نهایی زبدینو تولید شده و صدای canonical تأییدشده نیست.
-          </p>
-        )}
+        {ready && voiceLabel ? (
+          <div className="mt-3 rounded-xl border border-gray-800 bg-black/20 px-3 py-2">
+            <p className="text-[11px] font-bold text-gray-500">صدای فعلی</p>
+            <p className={`mt-1 text-xs font-bold ${productionAudio ? "text-emerald-300" : "text-amber-300"}`}>
+              {voiceLabel}
+            </p>
+          </div>
+        ) : null}
 
         <div className="mt-5 flex items-center justify-between border-t border-gray-800 pt-4 text-sm">
           {durationLabel ? (
