@@ -215,7 +215,7 @@ export default function AudioPlayer({ episode }: { episode: Episode }) {
             onChange={(event) =>
               setPlaybackRate(Number(event.target.value))
             }
-            className="bg-transparent font-bold text-white outline-none"
+            className="bg-transparent font-bold text-[var(--page-fg)] outline-none"
             aria-label="سرعت پخش"
           >
             {PLAYBACK_RATES.map((rate) => (
@@ -239,7 +239,7 @@ export default function AudioPlayer({ episode }: { episode: Episode }) {
               else if (value === "end") setSleepTimer("end");
               else setSleepTimer(Number(value) as 15 | 30 | 45);
             }}
-            className="bg-transparent font-bold text-white outline-none"
+            className="bg-transparent font-bold text-[var(--page-fg)] outline-none"
             aria-label="تایمر خواب"
           >
             <option value="off">خاموش</option>
@@ -294,7 +294,7 @@ export default function AudioPlayer({ episode }: { episode: Episode }) {
 
       {upNext && active && (
         <div className="mt-5 rounded-2xl border border-gray-800 bg-surface/40 p-4">
-          <p className="text-xs font-bold text-accent">Up Next</p>
+          <p className="text-xs font-bold text-accent">بعدی</p>
           <div className="mt-1 flex items-center justify-between gap-4">
             <p className="font-bold">{upNext.title}</p>
             <button
