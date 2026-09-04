@@ -11,7 +11,11 @@ interface BookCardProps {
 }
 
 export default function BookCard({ book }: BookCardProps) {
-  const episode = episodes.find((item) => item.bookSlug === book.slug);
+  const bookEpisodes = episodes.filter((item) => item.bookSlug === book.slug);
+  const episode =
+    bookEpisodes.find((item) => isProductionAudio(item.audio)) ??
+    bookEpisodes.find((item) => item.audio.status === "ready") ??
+    bookEpisodes[0];
   const ready = episode?.audio.status === "ready";
   const productionAudio = episode ? isProductionAudio(episode.audio) : false;
   const voiceLabel = episode ? getEpisodeVoiceLabelFa(episode.audio) : null;
@@ -78,7 +82,11 @@ export default function BookCard({ book }: BookCardProps) {
         {ready && voiceLabel ? (
           <div className="mt-3 rounded-xl border border-gray-800 bg-black/20 px-3 py-2">
             <p className="text-[11px] font-bold text-gray-500">صدای فعلی</p>
-            <p className={`mt-1 text-xs font-bold ${productionAudio ? "text-emerald-300" : "text-amber-300"}`}>
+            <p
+              className={`mt-1 text-xs font-bold ${
+                productionAudio ? "text-emerald-300" : "text-amber-300"
+              }`}
+            >
               {voiceLabel}
             </p>
           </div>

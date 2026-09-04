@@ -1,5 +1,5 @@
 export const projectStatus = {
-  version: "v0.2.0-beta.5.1.20",
+  version: "media-v0.2.0-rc.1",
   productionAudio: {
     ready: 5,
     total: 5,
@@ -9,16 +9,16 @@ export const projectStatus = {
       "Sulafat / Warm",
       "Schedar / Even",
     ],
-    verifiedVariants: 0,
+    verifiedVariants: 2,
     targetVariants: 10,
     stage:
-      "Batch A علاوه بر provenance چندنسلی، fallback ساختاری coverage دارد؛ اگر یک segment پس از دو تلاش کامل هنوز کوتاه باشد، متن بدون بازنویسی روی مرز جمله به childهای حداکثر ۷۰ کلمه‌ای شکسته می‌شود، childها مستقل و durable checkpoint می‌شوند و سپس parent بازسازی می‌شود؛ floor ۰٫۲۵ ثانیه بر کلمه، SSE و fail-closed حفظ شده و هنوز ۰/۱۰ است.",
+      "عادت‌های اتمی با هر دو صدای Sulafat و Schedar از QA نهایی عبور کرده، به‌صورت immutable در media-v0.2.0-rc.1 منتشر شده و metadata تأییدشده آن در محصول فعال است. چهار کتاب دیگر تا عبور از همین مسیر QA همچنان با وضعیت قبلی نمایش داده می‌شوند.",
   },
   currentMilestone: {
-    title: "Dual-Voice Batch A",
-    issueNumber: 151,
+    title: "Product Completion RC Gate",
+    issueNumber: 204,
     issueUrl:
-      "https://github.com/Zobdino/Zobdino/issues/151",
+      "https://github.com/Zobdino/Zobdino/issues/204",
   },
   releasesUrl:
     "https://github.com/Zobdino/Zobdino/releases",
