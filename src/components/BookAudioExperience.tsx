@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import AudioPlayer from "@/components/AudioPlayer";
 import TranscriptPanel from "@/components/player/TranscriptPanel";
+import { usePlayer } from "@/components/player/PlayerProvider";
 import { getEpisodeVoiceLabelFa, isProductionAudio } from "@/lib/audio";
 import type { Episode } from "@/lib/episodes";
 
@@ -12,6 +13,7 @@ export default function BookAudioExperience({
 }: {
   episodes: readonly Episode[];
 }) {
+  const { activeEpisode, currentTime, activateEpisode } = usePlayer();
   const playableEpisodes = useMemo(
     () => episodes.filter((episode) => episode.audio.status === "ready"),
     [episodes],
@@ -25,6 +27,21 @@ export default function BookAudioExperience({
   const selected = options.find((episode) => episode.id === selectedId) ?? options[0];
 
   if (!selected) return null;
+
+  const switchVoice = (episode: Episode) => {
+    if (episode.id === selected.id) return;
+    const activeIsCurrentBookVariant = options.some(
+      (option) => option.id === activeEpisode?.id,
+    );
+
+    setSelectedId(episode.id);
+    if (activeIsCurrentBookVariant) {
+      activateEpisode(episode.id, {
+        autoplay: false,
+        startAt: currentTime,
+      });
+    }
+  };
 
   return (
     <>
@@ -50,7 +67,7 @@ export default function BookAudioExperience({
                   <button
                     key={episode.id}
                     type="button"
-                    onClick={() => setSelectedId(episode.id)}
+                    onClick={() => switchVoice(episode)}
                     aria-pressed={active}
                     className={`rounded-xl px-4 py-2.5 text-sm font-bold transition ${
                       active
