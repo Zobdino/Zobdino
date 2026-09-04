@@ -31,8 +31,8 @@ jobs:
       - name: Run real-browser playback acceptance
         shell: bash
         run: |
-          mkdir -p .qa-report
-          cat > /tmp/atomic-habits-browser-qa.mjs <<'EOF'
+          mkdir -p .qa-report .qa-runner
+          cat > .qa-runner/atomic-habits-browser-qa.mjs <<'EOF'
           import { chromium } from 'playwright';
           import fs from 'node:fs/promises';
 
@@ -181,7 +181,7 @@ jobs:
             await browser.close();
           }
           EOF
-          node /tmp/atomic-habits-browser-qa.mjs
+          node .qa-runner/atomic-habits-browser-qa.mjs
 
       - name: Upload sanitized browser evidence
         if: always()
