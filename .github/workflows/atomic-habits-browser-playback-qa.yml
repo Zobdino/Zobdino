@@ -40,148 +40,16 @@ jobs:
             'صدای مرد زبدینو': 'atomic-habits-schedar-v1.mp3',
           };
 
-          const evidence = {
-            url,
-            checkedAt: new Date().toISOString(),
-            desktop: {},
-            mobile: {},
-            result: 'running',
-          };
-
-          const assert = (condition, message) => {
-            if (!condition) throw new Error(message);
-          };
-
-          async function audioState(page) {
-            return page.locator('body > audio').evaluate((audio) => ({
-              src: audio.currentSrc || audio.src,
-              currentTime: audio.currentTime,
-              duration: audio.duration,
-              paused: audio.paused,
-              readyState: audio.readyState,
-              error: audio.error ? { code: audio.error.code, message: audio.error.message } : null,
-            }));
-          }
-
-          async function waitForProgress(page, baseline, minAdvance = 0.5) {
-            await page.waitForFunction(
-              ({ baseline, minAdvance }) => {
-                const audio = document.querySelector('body > audio');
-                return audio && !audio.paused && audio.currentTime >= baseline + minAdvance;
-              },
-              { baseline, minAdvance },
-              { timeout: 30000 },
-            );
-          }
-
-          async function chooseVoice(page, label) {
-            const player = page.locator('#player');
-            const button = player.getByRole('button', { name: label, exact: true });
-            await button.waitFor({ state: 'visible' });
-            if ((await button.getAttribute('aria-pressed')) !== 'true') {
-              await button.click();
-            }
-            await page.waitForTimeout(300);
-          }
-
-          async function startAndPause(page, label) {
-            const player = page.locator('#player');
-            await chooseVoice(page, label);
-            const play = player.getByRole('button', { name: 'شروع پخش', exact: true });
-            await play.click();
-            await player.getByRole('button', { name: 'توقف پخش', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
-            const started = await audioState(page);
-            assert(started.src.includes(expected[label]), `${label}: wrong media source ${started.src}`);
-            assert(Number.isFinite(started.duration) && started.duration > 800, `${label}: invalid duration ${started.duration}`);
-            const baseline = started.currentTime;
-            await waitForProgress(page, baseline);
-            const progressed = await audioState(page);
-            assert(progressed.currentTime > baseline, `${label}: currentTime did not advance`);
-            await player.getByRole('button', { name: 'توقف پخش', exact: true }).click();
-            await page.waitForTimeout(250);
-            const paused = await audioState(page);
-            assert(paused.paused, `${label}: audio did not pause`);
-            return { started, progressed, paused };
-          }
-
-          async function desktopAcceptance(browser) {
-            const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-            const page = await context.newPage();
-            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-            const player = page.locator('#player');
-            await player.getByRole('group', { name: 'انتخاب صدای روایت' }).waitFor({ state: 'visible', timeout: 30000 });
-            assert(await player.getByRole('button', { name: 'صدای زن زبدینو', exact: true }).count() === 1, 'female voice selector missing');
-            assert(await player.getByRole('button', { name: 'صدای مرد زبدینو', exact: true }).count() === 1, 'male voice selector missing');
-
-            const female = await startAndPause(page, 'صدای زن زبدینو');
-
-            const range = player.getByRole('slider', { name: 'موقعیت پخش', exact: true });
-            await range.fill('60');
-            await page.waitForTimeout(400);
-            let state = await audioState(page);
-            assert(Math.abs(state.currentTime - 60) < 4, `seek failed: ${state.currentTime}`);
-
-            const beforeForward = state.currentTime;
-            await player.getByRole('button', { name: '۱۵ ثانیه بعد', exact: true }).click();
-            await page.waitForTimeout(300);
-            state = await audioState(page);
-            assert(state.currentTime >= beforeForward + 13, `forward skip failed: ${beforeForward} -> ${state.currentTime}`);
-
-            const beforeBack = state.currentTime;
-            await player.getByRole('button', { name: '۱۵ ثانیه قبل', exact: true }).click();
-            await page.waitForTimeout(300);
-            state = await audioState(page);
-            assert(state.currentTime <= beforeBack - 13, `back skip failed: ${beforeBack} -> ${state.currentTime}`);
-
-            const switchFrom = state.currentTime;
-            await chooseVoice(page, 'صدای مرد زبدینو');
-            await page.waitForTimeout(500);
-            const switched = await audioState(page);
-            assert(switched.src.includes(expected['صدای مرد زبدینو']), `voice switch source failed: ${switched.src}`);
-            assert(switched.paused, 'voice switch unexpectedly autoplayed');
-            assert(Math.abs(switched.currentTime - switchFrom) < 5, `voice switch did not preserve timestamp: ${switchFrom} -> ${switched.currentTime}`);
-
-            const male = await startAndPause(page, 'صدای مرد زبدینو');
-            await page.screenshot({ path: '.qa-report/desktop-atomic-habits.png', fullPage: true });
-            await context.close();
-            return { female, seekAndSkip: state, switched, male };
-          }
-
-          async function mobileAcceptance(browser) {
-            const context = await browser.newContext({
-              viewport: { width: 390, height: 844 },
-              isMobile: true,
-              hasTouch: true,
-              userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36',
-            });
-            const page = await context.newPage();
-            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-            const player = page.locator('#player');
-            await player.getByRole('group', { name: 'انتخاب صدای روایت' }).waitFor({ state: 'visible', timeout: 30000 });
-            const female = await startAndPause(page, 'صدای زن زبدینو');
-            const male = await startAndPause(page, 'صدای مرد زبدینو');
-            await page.screenshot({ path: '.qa-report/mobile-atomic-habits.png', fullPage: true });
-            await context.close();
-            return { female, male };
-          }
-
-          const browser = await chromium.launch({
-            headless: true,
-            args: ['--autoplay-policy=no-user-gesture-required'],
-          });
-
-          try {
-            evidence.desktop = await desktopAcceptance(browser);
-            evidence.mobile = await mobileAcceptance(browser);
-            evidence.result = 'pass';
-          } catch (error) {
-            evidence.result = 'fail';
-            evidence.error = error instanceof Error ? error.stack || error.message : String(error);
-            throw error;
-          } finally {
-            await fs.writeFile('.qa-report/browser-playback-evidence.json', JSON.stringify(evidence, null, 2));
-            await browser.close();
-          }
+          const evidence = { url, checkedAt: new Date().toISOString(), desktop: {}, mobile: {}, result: 'running' };
+          const assert = (condition, message) => { if (!condition) throw new Error(message); };
+          async function audioState(page) { return page.locator('body > audio').evaluate((audio) => ({ src: audio.currentSrc || audio.src, currentTime: audio.currentTime, duration: audio.duration, paused: audio.paused, readyState: audio.readyState, error: audio.error ? { code: audio.error.code, message: audio.error.message } : null })); }
+          async function waitForProgress(page, baseline, minAdvance = 0.5) { await page.waitForFunction(({ baseline, minAdvance }) => { const audio = document.querySelector('body > audio'); return audio && !audio.paused && audio.currentTime >= baseline + minAdvance; }, { baseline, minAdvance }, { timeout: 30000 }); }
+          async function chooseVoice(page, label) { const player = page.locator('#player'); const button = player.getByRole('button', { name: label, exact: true }); await button.waitFor({ state: 'visible' }); if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click(); await page.waitForTimeout(300); }
+          async function startAndPause(page, label) { const player = page.locator('#player'); await chooseVoice(page, label); await player.getByRole('button', { name: 'شروع پخش', exact: true }).click(); await player.getByRole('button', { name: 'توقف پخش', exact: true }).waitFor({ state: 'visible', timeout: 30000 }); const started = await audioState(page); assert(started.src.includes(expected[label]), `${label}: wrong media source ${started.src}`); assert(Number.isFinite(started.duration) && started.duration > 800, `${label}: invalid duration ${started.duration}`); const baseline = started.currentTime; await waitForProgress(page, baseline); const progressed = await audioState(page); assert(progressed.currentTime > baseline, `${label}: currentTime did not advance`); await player.getByRole('button', { name: 'توقف پخش', exact: true }).click(); await page.waitForTimeout(250); const paused = await audioState(page); assert(paused.paused, `${label}: audio did not pause`); return { started, progressed, paused }; }
+          async function desktopAcceptance(browser) { const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } }); const page = await context.newPage(); await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 }); const player = page.locator('#player'); await player.getByRole('group', { name: 'انتخاب صدای روایت' }).waitFor({ state: 'visible', timeout: 30000 }); const female = await startAndPause(page, 'صدای زن زبدینو'); const range = player.getByRole('slider', { name: 'موقعیت پخش', exact: true }); await range.fill('60'); await page.waitForTimeout(400); let state = await audioState(page); assert(Math.abs(state.currentTime - 60) < 4, `seek failed: ${state.currentTime}`); const beforeForward = state.currentTime; await player.getByRole('button', { name: '۱۵ ثانیه بعد', exact: true }).click(); await page.waitForTimeout(300); state = await audioState(page); assert(state.currentTime >= beforeForward + 13, `forward skip failed: ${beforeForward} -> ${state.currentTime}`); const beforeBack = state.currentTime; await player.getByRole('button', { name: '۱۵ ثانیه قبل', exact: true }).click(); await page.waitForTimeout(300); state = await audioState(page); assert(state.currentTime <= beforeBack - 13, `back skip failed: ${beforeBack} -> ${state.currentTime}`); const switchFrom = state.currentTime; await chooseVoice(page, 'صدای مرد زبدینو'); await page.waitForTimeout(500); const switched = await audioState(page); assert(switched.src.includes(expected['صدای مرد زبدینو']), `voice switch source failed: ${switched.src}`); assert(switched.paused, 'voice switch unexpectedly autoplayed'); assert(Math.abs(switched.currentTime - switchFrom) < 5, `voice switch did not preserve timestamp: ${switchFrom} -> ${switched.currentTime}`); const male = await startAndPause(page, 'صدای مرد زبدینو'); await page.screenshot({ path: '.qa-report/desktop-atomic-habits.png', fullPage: true }); await context.close(); return { female, seekAndSkip: state, switched, male }; }
+          async function mobileAcceptance(browser) { const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36' }); const page = await context.newPage(); await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 }); const player = page.locator('#player'); await player.getByRole('group', { name: 'انتخاب صدای روایت' }).waitFor({ state: 'visible', timeout: 30000 }); const female = await startAndPause(page, 'صدای زن زبدینو'); const male = await startAndPause(page, 'صدای مرد زبدینو'); await page.screenshot({ path: '.qa-report/mobile-atomic-habits.png', fullPage: true }); await context.close(); return { female, male }; }
+          const browser = await chromium.launch({ headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
+          try { evidence.desktop = await desktopAcceptance(browser); evidence.mobile = await mobileAcceptance(browser); evidence.result = 'pass'; } catch (error) { evidence.result = 'fail'; evidence.error = error instanceof Error ? error.stack || error.message : String(error); throw error; } finally { await fs.writeFile('.qa-report/browser-playback-evidence.json', JSON.stringify(evidence, null, 2)); await browser.close(); }
           EOF
           node .qa-runner/atomic-habits-browser-qa.mjs
 
