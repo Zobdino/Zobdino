@@ -1,5 +1,6 @@
 import rawEpisodes from "@/content/episodes.json";
 
+import { ATOMIC_HABITS_CANONICAL_AUDIO } from "@/lib/canonical-audio";
 import type { VoiceProfileId } from "@/lib/voices";
 
 export type EpisodeFormat = "standard";
@@ -36,4 +37,27 @@ export interface Episode {
   format: EpisodeFormat;
 }
 
-export const episodes = rawEpisodes as readonly Episode[];
+const baseEpisodes = rawEpisodes as readonly Episode[];
+const atomicHabitsBase = baseEpisodes.find(
+  (episode) => episode.bookSlug === "atomic-habits",
+);
+
+const canonicalAtomicHabitsEpisodes: readonly Episode[] = atomicHabitsBase
+  ? (Object.entries(ATOMIC_HABITS_CANONICAL_AUDIO).map(
+      ([voiceProfile, audio]) => ({
+        ...atomicHabitsBase,
+        id: `atomic-habits-${voiceProfile}`,
+        title: `${atomicHabitsBase.title} · ${voiceProfile === "sulafat-v1" ? "صدای زن" : "صدای مرد"}`,
+        audio,
+      }),
+    ) as readonly Episode[])
+  : [];
+
+/**
+ * Keeps the legacy catalog intact while overlaying verified canonical variants
+ * for Atomic Habits. The public player prefers approved canonical variants.
+ */
+export const episodes = [
+  ...baseEpisodes,
+  ...canonicalAtomicHabitsEpisodes,
+] as readonly Episode[];
