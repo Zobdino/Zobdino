@@ -1,9 +1,7 @@
 name: Atomic Habits Browser Playback QA
 
 on:
-  push:
-    branches:
-      - qa/148-browser-playback-gate
+  workflow_dispatch:
 
 permissions:
   contents: read
