@@ -200,8 +200,14 @@ export default function UserFileIngestion() {
       const text = await readBrowserDocumentText(file);
       const sections = sectionText(text);
       if (!sections.length || sections.length > 128) throw new Error("invalid-content");
+      const characters = sections.reduce((sum, item) => sum + item.text.length, 0);
+      if (characters > 1_000_000) {
+        setStatus("error");
+        setMessage("متن استخراج‌شده بیش از ۱٬۰۰۰٬۰۰۰ نویسه است. فایل کوتاه‌تری انتخاب کنید یا آن را به چند بخش تقسیم کنید.");
+        return;
+      }
       const digest = await sha256(canonicalSections(sections));
-      setPrepared({ file, sections, digest, characters: sections.reduce((sum, item) => sum + item.text.length, 0) });
+      setPrepared({ file, sections, digest, characters });
       setStatus("ready");
     } catch {
       setStatus("error");
