@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Clock3, Headphones, LoaderCircle, Play } from "lucide-react";
 
@@ -26,10 +27,13 @@ export default function BookCard({ book }: BookCardProps) {
       className="group block rounded-3xl border border-gray-800 bg-surface/55 p-4 transition duration-300 hover:-translate-y-1 hover:border-accent/60 hover:shadow-2xl hover:shadow-accent/10 focus:outline-none focus:ring-2 focus:ring-accent"
     >
       <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl bg-gray-900">
-        <img
+        <Image
           src={book.coverUrl}
           alt={`جلد ${book.titleFa}`}
-          className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03] group-hover:opacity-90"
+          fill
+          unoptimized
+          sizes="(max-width: 768px) 100vw, 25vw"
+          className="object-cover transition duration-500 group-hover:scale-[1.03] group-hover:opacity-90"
         />
 
         <div className="absolute inset-x-3 top-3 flex items-center justify-between gap-2">
