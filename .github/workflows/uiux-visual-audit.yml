@@ -1,0 +1,148 @@
+name: UIUX Visual Audit
+
+on:
+  push:
+    branches:
+      - design/253-uiux-visual-audit
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  visual-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_URL: https://zobdino.ir
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Install Playwright Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Capture live desktop and mobile audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .uiux-audit .uiux-runner
+          cat > .uiux-runner/capture.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs/promises';
+
+          const base = process.env.BASE_URL;
+          const pages = [
+            ['home', '/'],
+            ['upload', '/upload/'],
+            ['result-preview', '/upload/result-preview/'],
+            ['books', '/books/'],
+            ['atomic-habits', '/books/atomic-habits/'],
+            ['catalog', '/catalog/'],
+            ['features', '/features/'],
+            ['about', '/about/'],
+          ];
+          const viewports = [
+            ['desktop', { width: 1440, height: 1000, isMobile: false }],
+            ['mobile', { width: 390, height: 844, isMobile: true, hasTouch: true }],
+          ];
+
+          const report = {
+            base,
+            checkedAt: new Date().toISOString(),
+            pages: [],
+          };
+
+          const browser = await chromium.launch({ headless: true });
+          try {
+            for (const [mode, viewport] of viewports) {
+              const context = await browser.newContext({
+                viewport: { width: viewport.width, height: viewport.height },
+                isMobile: viewport.isMobile,
+                hasTouch: viewport.hasTouch ?? false,
+                userAgent: viewport.isMobile
+                  ? 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36'
+                  : undefined,
+                colorScheme: 'dark',
+              });
+              for (const [name, path] of pages) {
+                const page = await context.newPage();
+                const response = await page.goto(`${base}${path}`, { waitUntil: 'networkidle', timeout: 60000 });
+                await page.waitForTimeout(500);
+                const metrics = await page.evaluate(() => {
+                  const root = document.documentElement;
+                  const body = document.body;
+                  const h1 = document.querySelector('h1')?.textContent?.trim() ?? '';
+                  const header = document.querySelector('header');
+                  const footer = document.querySelector('footer');
+                  const buttons = [...document.querySelectorAll('button')];
+                  const links = [...document.querySelectorAll('a')];
+                  const cards = document.querySelectorAll('article, [class*="rounded-2xl"], [class*="rounded-3xl"]').length;
+                  const sections = document.querySelectorAll('main section').length;
+                  return {
+                    title: document.title,
+                    h1,
+                    htmlLang: root.lang,
+                    htmlDir: root.dir,
+                    scrollWidth: Math.max(root.scrollWidth, body.scrollWidth),
+                    clientWidth: root.clientWidth,
+                    overflowX: Math.max(root.scrollWidth, body.scrollWidth) > root.clientWidth + 1,
+                    documentHeight: Math.max(root.scrollHeight, body.scrollHeight),
+                    headerHeight: header?.getBoundingClientRect().height ?? 0,
+                    footerHeight: footer?.getBoundingClientRect().height ?? 0,
+                    sections,
+                    cards,
+                    buttons: buttons.length,
+                    links: links.length,
+                    unlabeledButtons: buttons.filter((b) => !(b.textContent?.trim() || b.getAttribute('aria-label') || b.getAttribute('title'))).length,
+                    imagesWithoutAlt: [...document.querySelectorAll('img')].filter((img) => !img.hasAttribute('alt')).length,
+                  };
+                });
+                const screenshot = `.uiux-audit/${mode}-${name}.png`;
+                await page.screenshot({ path: screenshot, fullPage: true });
+                report.pages.push({
+                  mode,
+                  name,
+                  path,
+                  status: response?.status() ?? null,
+                  screenshot,
+                  ...metrics,
+                });
+                await page.close();
+              }
+              await context.close();
+            }
+          } finally {
+            await browser.close();
+          }
+
+          report.summary = {
+            routes: pages.length,
+            captures: report.pages.length,
+            httpFailures: report.pages.filter((p) => p.status !== 200).length,
+            overflowFailures: report.pages.filter((p) => p.overflowX).length,
+            unlabeledButtons: report.pages.reduce((n, p) => n + p.unlabeledButtons, 0),
+            imagesWithoutAlt: report.pages.reduce((n, p) => n + p.imagesWithoutAlt, 0),
+          };
+          await fs.writeFile('.uiux-audit/audit.json', JSON.stringify(report, null, 2));
+          console.log(JSON.stringify(report.summary));
+          if (report.summary.httpFailures > 0) process.exitCode = 1;
+          EOF
+          node .uiux-runner/capture.mjs
+
+      - name: Upload visual audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uiux-visual-audit-${{ github.run_id }}
+          path: .uiux-audit
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
