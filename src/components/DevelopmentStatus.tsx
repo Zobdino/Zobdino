@@ -31,9 +31,9 @@ export default function DevelopmentStatus() {
               آخرین تغییرات پروژه را همین‌جا ببین
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-7 text-gray-400">
-              این بخش همراه milestoneهای اصلی GitHub به‌روزرسانی
-              می‌شود؛ صوت production فعلی تا کامل‌شدن Dual Voice
-              بدون تغییر باقی می‌ماند.
+              اولین کتاب دوصدایی زبدینو از QA نهایی عبور کرده و با رسانه
+              immutable روی Release Candidate فعال است؛ توسعه چهار کتاب دیگر
+              بدون تغییر وضعیت تا عبور از همین Gate ادامه دارد.
             </p>
           </div>
 
