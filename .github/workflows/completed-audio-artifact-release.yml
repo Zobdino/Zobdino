@@ -1,0 +1,279 @@
+name: Zobdino Completed Audio Artifact Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        required: true
+        type: string
+      source_artifact_id:
+        required: true
+        type: string
+      source_artifact_name:
+        required: true
+        type: string
+      source_artifact_digest:
+        required: true
+        type: string
+      source_head_sha:
+        required: true
+        type: string
+      qa_run_id:
+        required: true
+        type: string
+      qa_artifact_id:
+        required: true
+        type: string
+      qa_artifact_name:
+        required: true
+        type: string
+      media_tag:
+        required: true
+        default: media-v0.2.0-rc.1
+        type: string
+      tracking_issue:
+        required: true
+        default: "237"
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+  issues: write
+
+concurrency:
+  group: zobdino-completed-audio-artifact-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify pinned source and QA artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ARTIFACT_ID: ${{ inputs.source_artifact_id }}
+          SOURCE_ARTIFACT_NAME: ${{ inputs.source_artifact_name }}
+          SOURCE_ARTIFACT_DIGEST: ${{ inputs.source_artifact_digest }}
+          SOURCE_HEAD_SHA: ${{ inputs.source_head_sha }}
+          QA_RUN_ID: ${{ inputs.qa_run_id }}
+          QA_ARTIFACT_ID: ${{ inputs.qa_artifact_id }}
+          QA_ARTIFACT_NAME: ${{ inputs.qa_artifact_name }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$SOURCE_ARTIFACT_ID" =~ ^[0-9]+$ ]]
+          [[ "$QA_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$QA_ARTIFACT_ID" =~ ^[0-9]+$ ]]
+          [[ "$SOURCE_ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$SOURCE_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+          SOURCE_META="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT_ID")"
+          [[ "$(jq -r .name <<<"$SOURCE_META")" == "$SOURCE_ARTIFACT_NAME" ]]
+          [[ "$(jq -r .expired <<<"$SOURCE_META")" == "false" ]]
+          [[ "$(jq -r .digest <<<"$SOURCE_META")" == "$SOURCE_ARTIFACT_DIGEST" ]]
+          [[ "$(jq -r .workflow_run.id <<<"$SOURCE_META")" == "$SOURCE_RUN_ID" ]]
+          [[ "$(jq -r .workflow_run.head_sha <<<"$SOURCE_META")" == "$SOURCE_HEAD_SHA" ]]
+
+          QA_RUN="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QA_RUN_ID")"
+          [[ "$(jq -r .conclusion <<<"$QA_RUN")" == "success" ]]
+          [[ "$(jq -r .path <<<"$QA_RUN")" == ".github/workflows/completed-audio-artifact-qa.yml" ]]
+
+          QA_META="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$QA_ARTIFACT_ID")"
+          [[ "$(jq -r .name <<<"$QA_META")" == "$QA_ARTIFACT_NAME" ]]
+          [[ "$(jq -r .expired <<<"$QA_META")" == "false" ]]
+          [[ "$(jq -r .workflow_run.id <<<"$QA_META")" == "$QA_RUN_ID" ]]
+          QA_DIGEST="$(jq -r .digest <<<"$QA_META")"
+          [[ "$QA_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "qa_digest=$QA_DIGEST" >> "$GITHUB_ENV"
+          echo "Pinned source + QA artifacts PASS."
+
+      - name: Download and verify source and QA bytes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_ARTIFACT_ID: ${{ inputs.source_artifact_id }}
+          SOURCE_ARTIFACT_DIGEST: ${{ inputs.source_artifact_digest }}
+          QA_ARTIFACT_ID: ${{ inputs.qa_artifact_id }}
+        run: |
+          set -euo pipefail
+          rm -rf .release-source .release-qa .release-evidence
+          mkdir -p .release-source/unpacked .release-qa/unpacked .release-evidence
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT_ID/zip" > .release-source/source.zip
+          SOURCE_ACTUAL="sha256:$(sha256sum .release-source/source.zip | awk '{print $1}')"
+          [[ "$SOURCE_ACTUAL" == "$SOURCE_ARTIFACT_DIGEST" ]]
+          unzip -q .release-source/source.zip -d .release-source/unpacked
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$QA_ARTIFACT_ID/zip" > .release-qa/qa.zip
+          QA_ACTUAL="sha256:$(sha256sum .release-qa/qa.zip | awk '{print $1}')"
+          [[ "$QA_ACTUAL" == "$qa_digest" ]]
+          unzip -q .release-qa/qa.zip -d .release-qa/unpacked
+          echo "Source + QA ZIP digest PASS."
+
+      - name: Verify exact QA evidence and canonical podcasts
+        shell: bash
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ARTIFACT_ID: ${{ inputs.source_artifact_id }}
+          SOURCE_ARTIFACT_NAME: ${{ inputs.source_artifact_name }}
+          SOURCE_ARTIFACT_DIGEST: ${{ inputs.source_artifact_digest }}
+          SOURCE_HEAD_SHA: ${{ inputs.source_head_sha }}
+        run: |
+          set -euo pipefail
+          MANIFEST="$(find .release-source/unpacked -type f -name dual-voice-manifest.json -print -quit)"
+          QA_EVIDENCE="$(find .release-qa/unpacked -type f -name qa-evidence.json -print -quit)"
+          [[ -n "$MANIFEST" && -n "$QA_EVIDENCE" ]]
+          ROOT="$(dirname "$MANIFEST")"
+          echo "$ROOT" > .release-source/root.txt
+
+          jq -e --arg run "$SOURCE_RUN_ID" --arg aid "$SOURCE_ARTIFACT_ID" --arg name "$SOURCE_ARTIFACT_NAME" --arg digest "$SOURCE_ARTIFACT_DIGEST" --arg sha "$SOURCE_HEAD_SHA" '
+            .state == "qa-passed" and
+            .bookSlug == "atomic-habits" and
+            ([.voices[]] | sort == ["Schedar","Sulafat"]) and
+            .sourceRunId == $run and
+            .artifactId == $aid and
+            .artifactName == $name and
+            .artifactDigest == $digest and
+            .sourceHeadSha == $sha and
+            .productionPromoted == false
+          ' "$QA_EVIDENCE" >/dev/null
+
+          jq -e --arg sha "$SOURCE_HEAD_SHA" '
+            .sourceCodeSha == $sha and
+            (.assets | length == 2) and
+            ([.assets[].bookSlug] | all(. == "atomic-habits")) and
+            ([.assets[].providerVoice] | sort == ["Schedar","Sulafat"]) and
+            ([.assets[].role] | sort == ["female","male"])
+          ' "$MANIFEST" >/dev/null
+
+          while IFS=$'\t' read -r ROLE VOICE REL SHA BYTES; do
+            FILE="$ROOT/$REL"
+            test -s "$FILE"
+            [[ "$(sha256sum "$FILE" | awk '{print $1}')" == "$SHA" ]]
+            [[ "$(stat -c %s "$FILE")" == "$BYTES" ]]
+            echo "Canonical podcast PASS: $ROLE / $VOICE"
+          done < <(jq -r '.assets[] | [.role,.providerVoice,.podcast.path,.podcast.sha256,.podcast.bytes] | @tsv' "$MANIFEST")
+
+      - name: Create or verify immutable media prerelease
+        id: media
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MEDIA_TAG: ${{ inputs.media_tag }}
+          SOURCE_HEAD_SHA: ${{ inputs.source_head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$MEDIA_TAG" =~ ^media-v[0-9A-Za-z._-]+$ ]]
+          git fetch origin "$SOURCE_HEAD_SHA"
+
+          if git ls-remote --tags origin "refs/tags/$MEDIA_TAG" | grep -q .; then
+            git fetch origin "refs/tags/$MEDIA_TAG:refs/tags/$MEDIA_TAG" --force
+            [[ "$(git cat-file -t "refs/tags/$MEDIA_TAG")" == "tag" ]]
+            [[ "$(git rev-list -n 1 "refs/tags/$MEDIA_TAG")" == "$SOURCE_HEAD_SHA" ]]
+          else
+            git config user.name "zobdino-content-bot"
+            git config user.email "actions@users.noreply.github.com"
+            git tag -a "$MEDIA_TAG" "$SOURCE_HEAD_SHA" -m "Zobdino Atomic Habits RC media — Sulafat + Schedar"
+            git push origin "$MEDIA_TAG"
+          fi
+
+          if ! gh release view "$MEDIA_TAG" >/dev/null 2>&1; then
+            gh release create "$MEDIA_TAG" --verify-tag --prerelease \
+              --title "Zobdino Atomic Habits Dual Voice RC — Sulafat + Schedar" \
+              --notes "Immutable QA-passed Atomic Habits media from exact source SHA $SOURCE_HEAD_SHA. Product metadata and production promotion are separate gates."
+          fi
+          URL="$(gh release view "$MEDIA_TAG" --json url --jq .url)"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Upload and download-back verify immutable assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MEDIA_TAG: ${{ inputs.media_tag }}
+        run: |
+          set -euo pipefail
+          ROOT="$(cat .release-source/root.txt)"
+          MANIFEST="$ROOT/dual-voice-manifest.json"
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          : > .release-evidence/assets.tsv
+
+          while IFS=$'\t' read -r VOICE REL SHA BYTES; do
+            VOICE_SLUG="$(tr '[:upper:]' '[:lower:]' <<<"$VOICE")"
+            NAME="atomic-habits-${VOICE_SLUG}-v1.mp3"
+            SRC="$ROOT/$REL"
+            DST="$RUNNER_TEMP/release-assets/$NAME"
+
+            if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$MEDIA_TAG" --jq '.assets[].name' | grep -Fxq "$NAME"; then
+              echo "::error::Refusing to overwrite existing immutable asset: $NAME"
+              exit 1
+            fi
+            cp "$SRC" "$DST"
+            [[ "$(sha256sum "$DST" | awk '{print $1}')" == "$SHA" ]]
+            [[ "$(stat -c %s "$DST")" == "$BYTES" ]]
+            gh release upload "$MEDIA_TAG" "$DST"
+
+            ROW="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$MEDIA_TAG" --jq ".assets[] | select(.name == \"$NAME\") | [.size,.digest,.browser_download_url] | @tsv")"
+            IFS=$'\t' read -r REMOTE_BYTES REMOTE_DIGEST REMOTE_URL <<<"$ROW"
+            [[ "$REMOTE_BYTES" == "$BYTES" ]]
+            [[ "$REMOTE_DIGEST" == "sha256:$SHA" ]]
+
+            TMP="$(mktemp)"
+            curl --fail --location --silent --show-error "$REMOTE_URL" --output "$TMP"
+            [[ "$(sha256sum "$TMP" | awk '{print $1}')" == "$SHA" ]]
+            [[ "$(stat -c %s "$TMP")" == "$BYTES" ]]
+            rm -f "$TMP"
+            printf '%s\t%s\t%s\t%s\n' "$VOICE" "$NAME" "$SHA" "$BYTES" >> .release-evidence/assets.tsv
+            echo "Immutable media PASS: $NAME"
+          done < <(jq -r '.assets[] | [.providerVoice,.podcast.path,.podcast.sha256,.podcast.bytes] | @tsv' "$MANIFEST")
+
+      - name: Write sanitized release evidence
+        shell: bash
+        env:
+          MEDIA_TAG: ${{ inputs.media_tag }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ARTIFACT_ID: ${{ inputs.source_artifact_id }}
+          SOURCE_ARTIFACT_DIGEST: ${{ inputs.source_artifact_digest }}
+          SOURCE_HEAD_SHA: ${{ inputs.source_head_sha }}
+          QA_RUN_ID: ${{ inputs.qa_run_id }}
+          QA_ARTIFACT_ID: ${{ inputs.qa_artifact_id }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg mediaTag "$MEDIA_TAG" \
+            --arg sourceRunId "$SOURCE_RUN_ID" \
+            --arg sourceArtifactId "$SOURCE_ARTIFACT_ID" \
+            --arg sourceArtifactDigest "$SOURCE_ARTIFACT_DIGEST" \
+            --arg sourceHeadSha "$SOURCE_HEAD_SHA" \
+            --arg qaRunId "$QA_RUN_ID" \
+            --arg qaArtifactId "$QA_ARTIFACT_ID" \
+            '{schemaVersion:1,state:"media-rc-passed",bookSlug:"atomic-habits",voices:["Sulafat","Schedar"],mediaTag:$mediaTag,sourceRunId:$sourceRunId,sourceArtifactId:$sourceArtifactId,sourceArtifactDigest:$sourceArtifactDigest,sourceHeadSha:$sourceHeadSha,qaRunId:$qaRunId,qaArtifactId:$qaArtifactId,productMetadataPromoted:false,productionPromoted:false}' \
+            > .release-evidence/release-evidence.json
+
+      - name: Upload sanitized release evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: atomic-habits-dual-voice-release-${{ github.run_id }}
+          path: .release-evidence
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+      - name: Record tracking evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRACKING_ISSUE: ${{ inputs.tracking_issue }}
+          MEDIA_TAG: ${{ inputs.media_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$TRACKING_ISSUE" =~ ^[0-9]+$ ]]
+          gh issue comment "$TRACKING_ISSUE" --body "[exact-artifact-media] PASS | source run: ${{ inputs.source_run_id }} | source artifact: ${{ inputs.source_artifact_id }} | QA run: ${{ inputs.qa_run_id }} | QA artifact: ${{ inputs.qa_artifact_id }} | media tag: $MEDIA_TAG | release: ${{ steps.media.outputs.url }} | workflow: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID | No TTS regeneration; product metadata and production remain unchanged."
