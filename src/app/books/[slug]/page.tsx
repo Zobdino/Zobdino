@@ -2,8 +2,7 @@ import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Clock3, Headphones, LoaderCircle, Mic2, Sparkles } from "lucide-react";
 
-import AudioPlayer from "@/components/AudioPlayer";
-import TranscriptPanel from "@/components/player/TranscriptPanel";
+import BookAudioExperience from "@/components/BookAudioExperience";
 import { getEpisodeVoiceLabelFa, isProductionAudio } from "@/lib/audio";
 import { books } from "@/lib/books";
 import { episodes } from "@/lib/episodes";
@@ -22,9 +21,13 @@ export default async function BookPage({
   const book = books.find((item) => item.slug === slug);
   if (!book) return notFound();
 
-  const episode = episodes.find((item) => item.bookSlug === book.slug);
-  const ready = episode?.audio.status === "ready";
-  const productionAudio = episode ? isProductionAudio(episode.audio) : false;
+  const bookEpisodes = episodes.filter((item) => item.bookSlug === book.slug);
+  const canonicalEpisode = bookEpisodes.find((item) =>
+    isProductionAudio(item.audio),
+  );
+  const episode = canonicalEpisode ?? bookEpisodes[0];
+  const ready = bookEpisodes.some((item) => item.audio.status === "ready");
+  const productionAudio = Boolean(canonicalEpisode);
   const voiceLabel = episode ? getEpisodeVoiceLabelFa(episode.audio) : null;
   const approvedVoices = Object.values(APPROVED_VOICE_PROFILES);
 
@@ -125,20 +128,8 @@ export default async function BookPage({
         </div>
       </section>
 
-      {episode ? (
-        <section
-          id="player"
-          className="mb-12 rounded-3xl border border-gray-800 bg-surface/50 p-5 md:p-8"
-        >
-          <div className="mb-6">
-            <p className="text-sm font-bold text-accent">اپیزود زبدینو</p>
-            <h2 className="mt-2 text-2xl font-extrabold">{episode.title}</h2>
-          </div>
-          <AudioPlayer episode={episode} />
-          <p className="mt-6 text-lg leading-8 text-gray-400">
-            {episode.description}
-          </p>
-        </section>
+      {bookEpisodes.length > 0 ? (
+        <BookAudioExperience episodes={bookEpisodes} />
       ) : (
         <section className="mb-12 rounded-3xl border border-amber-800/50 bg-amber-950/20 p-7 md:p-9">
           <div className="flex items-start gap-4">
@@ -181,8 +172,6 @@ export default async function BookPage({
           </ul>
         </section>
       )}
-
-      {episode && <TranscriptPanel episode={episode} />}
     </div>
   );
 }
