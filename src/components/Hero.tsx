@@ -8,7 +8,7 @@ export default function Hero() {
 
       <div className="z-container grid gap-14 py-16 md:grid-cols-[1.1fr_0.9fr] md:items-center md:py-24">
         <div>
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-violet-500/15 bg-violet-500/8 px-4 py-2 text-sm font-bold text-violet-700 dark:text-violet-300">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-violet-500/15 bg-violet-500/[0.08] px-4 py-2 text-sm font-bold text-violet-700 dark:text-violet-300">
             <Sparkles size={16} />
             خلاصه، منبع و صوت فارسی از یک فایل
           </div>
