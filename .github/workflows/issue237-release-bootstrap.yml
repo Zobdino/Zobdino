@@ -1,0 +1,35 @@
+name: Zobdino Issue237 Release Bootstrap
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/issue237-release-bootstrap.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch exact-artifact release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run completed-audio-artifact-release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f source_run_id=33852342391 \
+            -f source_artifact_id=9929053519 \
+            -f source_artifact_name=dual-voice-completed-batch-a-atomic-33852342391 \
+            -f source_artifact_digest=sha256:fb19430257bb1e2a2f8bf19f9272f2033079271ab1e9f94a3e60f82e7f1e7a2c \
+            -f source_head_sha=7f01c43ee0a9989794d614b035a365db0ae90e3d \
+            -f qa_run_id=33856202404 \
+            -f qa_artifact_id=9930739401 \
+            -f qa_artifact_name=atomic-habits-dual-voice-qa-33856202404 \
+            -f media_tag=media-v0.2.0-rc.1 \
+            -f tracking_issue=237
+          echo "Exact QA-passed artifact release dispatched; no TTS or production deployment performed."
