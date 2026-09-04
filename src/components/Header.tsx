@@ -17,6 +17,7 @@ export default function Header() {
 
   const labels = {
     upload: fa ? "تبدیل فایل" : "Upload",
+    features: fa ? "امکانات" : "Features",
     books: fa ? "کتاب‌ها" : "Books",
     catalog: fa ? "کتابخانه" : "Catalog",
     about: fa ? "درباره زبدینو" : "About",
@@ -42,8 +43,9 @@ export default function Header() {
           />
         </Link>
 
-        <nav className="hidden items-center gap-7 text-sm font-semibold md:flex">
+        <nav className="hidden items-center gap-6 text-sm font-semibold md:flex">
           <Link href="/upload">{labels.upload}</Link>
+          <Link href="/features">{labels.features}</Link>
           <Link href="/books">{labels.books}</Link>
           <Link href="/catalog">{labels.catalog}</Link>
           <Link href="/about">{labels.about}</Link>
@@ -81,7 +83,8 @@ export default function Header() {
           type="button"
           className="rounded-xl border border-black/10 p-2 md:hidden dark:border-white/10"
           onClick={() => setOpen((value) => !value)}
-          aria-label="Menu"
+          aria-label={fa ? "باز کردن منو" : "Open menu"}
+          aria-expanded={open}
         >
           {open ? <X size={21} /> : <Menu size={21} />}
         </button>
@@ -91,6 +94,7 @@ export default function Header() {
         <div className="border-t border-black/10 bg-white px-4 py-4 md:hidden dark:border-white/10 dark:bg-[#0b0b0f]">
           <div className="flex flex-col gap-4 text-sm font-semibold">
             <Link href="/upload" onClick={() => setOpen(false)}>{labels.upload}</Link>
+            <Link href="/features" onClick={() => setOpen(false)}>{labels.features}</Link>
             <Link href="/books" onClick={() => setOpen(false)}>{labels.books}</Link>
             <Link href="/catalog" onClick={() => setOpen(false)}>{labels.catalog}</Link>
             <Link href="/about" onClick={() => setOpen(false)}>{labels.about}</Link>
