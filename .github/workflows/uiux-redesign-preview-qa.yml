@@ -51,8 +51,8 @@ jobs:
       - name: Chromium visual and structural acceptance
         shell: bash
         run: |
-          mkdir -p .qa-uiux
-          cat > /tmp/uiux-preview-qa.mjs <<'EOF'
+          mkdir -p .qa-uiux .qa-runner
+          cat > .qa-runner/uiux-preview-qa.mjs <<'EOF'
           import { chromium } from 'playwright';
           import fs from 'node:fs/promises';
 
@@ -117,7 +117,7 @@ jobs:
             await browser.close();
           }
           EOF
-          node /tmp/uiux-preview-qa.mjs
+          node .qa-runner/uiux-preview-qa.mjs
 
       - name: Upload redesigned visual evidence
         if: always()
