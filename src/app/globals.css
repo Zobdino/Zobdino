@@ -4,20 +4,36 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --color-accent: #8b5cf6;
+  --color-accent: #7c3aed;
   --font-sans: "Vazirmatn", sans-serif;
 }
 
 :root {
   color-scheme: light;
-  --page-bg: #ffffff;
-  --page-fg: #111827;
+  --page-bg: #f8f7fb;
+  --page-fg: #17151f;
+  --surface: #ffffff;
+  --surface-soft: #f1eef7;
+  --border: rgba(31, 27, 45, 0.1);
+  --muted: #6f6a7c;
+  --accent: #7c3aed;
+  --accent-strong: #6425c8;
+  --accent-soft: rgba(124, 58, 237, 0.09);
+  --shadow-soft: 0 24px 70px rgba(47, 35, 75, 0.09);
 }
 
 html.dark {
   color-scheme: dark;
-  --page-bg: #09090b;
-  --page-fg: #f4f4f5;
+  --page-bg: #0c0b10;
+  --page-fg: #f6f3fb;
+  --surface: #141219;
+  --surface-soft: #1c1923;
+  --border: rgba(255, 255, 255, 0.09);
+  --muted: #aaa3b7;
+  --accent: #9b6cf7;
+  --accent-strong: #b795ff;
+  --accent-soft: rgba(155, 108, 247, 0.12);
+  --shadow-soft: 0 24px 80px rgba(0, 0, 0, 0.28);
 }
 
 html,
@@ -25,9 +41,15 @@ body {
   min-height: 100%;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   margin: 0;
-  background: var(--page-bg);
+  background:
+    radial-gradient(circle at 80% -10%, rgba(124, 58, 237, 0.08), transparent 36rem),
+    var(--page-bg);
   color: var(--page-fg);
   font-family: var(--font-sans);
   transition:
@@ -37,4 +59,40 @@ body {
 
 * {
   box-sizing: border-box;
+}
+
+::selection {
+  background: rgba(124, 58, 237, 0.18);
+}
+
+a,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.z-container {
+  width: min(100% - 2rem, 76rem);
+  margin-inline: auto;
+}
+
+.z-surface {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: var(--shadow-soft);
+}
+
+.z-eyebrow {
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.z-muted {
+  color: var(--muted);
+}
+
+.z-focus:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 36%, transparent);
+  outline-offset: 3px;
 }
