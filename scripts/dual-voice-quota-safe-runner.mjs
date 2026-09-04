@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  classifyQuotaPause,
-  createQuotaPausedManifest,
+  classifyControlledPause,
+  createControlledPauseManifest,
 } from "./dual-voice-quota-state.mjs";
 
 const args = process.argv.slice(2);
@@ -52,13 +52,13 @@ if (exitCode === 0) {
   process.exit(0);
 }
 
-const classification = classifyQuotaPause(stderr);
-if (classification.state !== "quota-paused") {
+const classification = classifyControlledPause(stderr);
+if (classification.state === "not-controlled-paused") {
   process.exit(exitCode);
 }
 
 await mkdir(outDir, { recursive: true });
-const manifest = createQuotaPausedManifest({
+const manifest = createControlledPauseManifest({
   batch,
   voice: null,
   outputPath: null,
@@ -76,9 +76,10 @@ await writeFile(
 );
 
 console.log(
-  `Dual-voice quota pause captured safely: ${manifestPath}; ` +
+  `Dual-voice controlled pause captured safely: ${manifestPath}; ` +
+  `kind=${manifest.pauseKind}; reason=${manifest.reason}; ` +
   `retryAfterMs=${manifest.retryAfterMs ?? "unknown"}.`,
 );
 
-// EX_TEMPFAIL: controlled pause; workflow handles this separately from code failure.
+// EX_TEMPFAIL: controlled retryable pause; workflow handles this separately from code failure.
 process.exit(75);
