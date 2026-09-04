@@ -1,0 +1,149 @@
+name: Public RC Smoke
+
+on:
+  push:
+    branches:
+      - qa/249-public-rc-smoke
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE_URL: https://zobdino.ir
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Prepare evidence directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .qa-public
+          printf 'source_sha=%s\n' "$GITHUB_SHA" > .qa-public/summary.txt
+          printf 'base_url=%s\n' "$BASE_URL" >> .qa-public/summary.txt
+
+      - name: DNS and TLS reachability
+        shell: bash
+        run: |
+          set -euo pipefail
+          getent ahostsv4 zobdino.ir | tee .qa-public/dns.txt
+          curl --fail --silent --show-error --location \
+            --max-time 20 \
+            --output /dev/null \
+            --write-out 'https_code=%{http_code}\nremote_ip=%{remote_ip}\ntls_verify=%{ssl_verify_result}\nconnect=%{time_connect}\nttfb=%{time_starttransfer}\ntotal=%{time_total}\n' \
+            "$BASE_URL/" | tee .qa-public/https.txt
+          grep -q '^https_code=200$' .qa-public/https.txt
+          grep -q '^tls_verify=0$' .qa-public/https.txt
+
+      - name: Public route smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          routes=(
+            '/'
+            '/books/atomic-habits/'
+            '/upload/'
+            '/catalog/'
+            '/features/'
+            '/books/'
+            '/about/'
+          )
+
+          : > .qa-public/routes.txt
+          for route in "${routes[@]}"; do
+            key="$(printf '%s' "$route" | tr '/ ' '__' | sed 's/^_*$/root/')"
+            body=".qa-public/${key}.html"
+            metrics="$(curl --fail --silent --show-error --location \
+              --max-time 20 \
+              --output "$body" \
+              --write-out '%{http_code}|%{remote_ip}|%{time_starttransfer}|%{time_total}|%{size_download}' \
+              "$BASE_URL$route")"
+            printf '%s|%s\n' "$route" "$metrics" | tee -a .qa-public/routes.txt
+            test "${metrics%%|*}" = '200'
+          done
+
+      - name: RC truth assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          home=.qa-public/root.html
+          atomic=.qa-public/_books_atomic-habits_.html
+          features=.qa-public/_features_.html
+          books=.qa-public/_books_.html
+
+          grep -q 'media-v0.2.0-rc.1' "$home"
+          grep -q 'Atomic Habits' "$home"
+          grep -q 'Sulafat' "$home"
+          grep -q 'Schedar' "$home"
+          ! grep -q 'v0.2.0-beta.5.1.20' "$home"
+          ! grep -q '۰.*از.*۱۰.*variant' "$home"
+
+          grep -q 'media-v0.2.0-rc.1' "$atomic"
+          grep -q 'Sulafat' "$atomic"
+          grep -q 'Schedar' "$atomic"
+
+          grep -q 'Sulafat' "$features"
+          grep -q 'Schedar' "$features"
+          ! grep -q 'QA نهایی رسانه دوصدایی در حال تکمیل است' "$features"
+
+          grep -q 'Atomic Habits' "$books"
+
+          printf 'rc_truth=PASS\n' | tee -a .qa-public/summary.txt
+
+      - name: Critical asset smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=(
+            '/favicon.png'
+            '/brand/zobdino-logo.png'
+            '/audio/voice-preview/sulafat-warm-preview.mp3'
+            '/audio/voice-preview/schedar-even-preview.mp3'
+          )
+
+          : > .qa-public/assets.txt
+          for asset in "${assets[@]}"; do
+            metrics="$(curl --fail --silent --show-error --location \
+              --max-time 20 \
+              --range 0-1023 \
+              --output /dev/null \
+              --write-out '%{http_code}|%{content_type}|%{size_download}|%{time_total}' \
+              "$BASE_URL$asset")"
+            printf '%s|%s\n' "$asset" "$metrics" | tee -a .qa-public/assets.txt
+            code="${metrics%%|*}"
+            case "$code" in
+              200|206) ;;
+              *) exit 1 ;;
+            esac
+          done
+
+      - name: Performance smoke summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          awk -F'|' '
+            {
+              route=$1; ttfb=$4+0; total=$5+0; size=$6+0;
+              if (ttfb > max_ttfb) { max_ttfb=ttfb; max_ttfb_route=route }
+              if (total > max_total) { max_total=total; max_total_route=route }
+              sum_size += size;
+            }
+            END {
+              printf "routes=%d\nmax_ttfb=%.3f\nmax_ttfb_route=%s\nmax_total=%.3f\nmax_total_route=%s\ntotal_html_bytes=%d\n", NR, max_ttfb, max_ttfb_route, max_total, max_total_route, sum_size;
+              if (max_total > 20) exit 1;
+            }
+          ' .qa-public/routes.txt | tee .qa-public/performance.txt
+
+      - name: Upload sanitized public smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-rc-smoke-${{ github.run_id }}
+          path: .qa-public
+          if-no-files-found: warn
+          retention-days: 14
