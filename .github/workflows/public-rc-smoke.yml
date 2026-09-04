@@ -145,5 +145,6 @@ jobs:
         with:
           name: public-rc-smoke-${{ github.run_id }}
           path: .qa-public
-          if-no-files-found: warn
+          if-no-files-found: error
+          include-hidden-files: true
           retention-days: 14
