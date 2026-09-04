@@ -23,12 +23,26 @@ export interface BrowserRuntimeAudioSegment {
   playbackPath?: string;
 }
 
+export interface BrowserRuntimeSourceEvidence {
+  sourceRef: string;
+  startOffset: number;
+  endOffset: number;
+  sourceSha256: string;
+}
+
+export interface BrowserRuntimeProvenance {
+  provider: string;
+  model: string;
+}
+
 export interface BrowserRuntimeAsset {
   id: string;
   kind: string;
   status: string;
   bytes?: number;
   text?: string;
+  provenance?: BrowserRuntimeProvenance;
+  evidence?: BrowserRuntimeSourceEvidence[];
   audioSegments?: BrowserRuntimeAudioSegment[];
 }
 
