@@ -77,7 +77,8 @@ jobs:
           }
 
           async function chooseVoice(page, label) {
-            const button = page.getByRole('button', { name: label, exact: true });
+            const player = page.locator('#player');
+            const button = player.getByRole('button', { name: label, exact: true });
             await button.waitFor({ state: 'visible' });
             if ((await button.getAttribute('aria-pressed')) !== 'true') {
               await button.click();
@@ -86,10 +87,11 @@ jobs:
           }
 
           async function startAndPause(page, label) {
+            const player = page.locator('#player');
             await chooseVoice(page, label);
-            const play = page.getByRole('button', { name: 'شروع پخش', exact: true });
+            const play = player.getByRole('button', { name: 'شروع پخش', exact: true });
             await play.click();
-            await page.getByRole('button', { name: 'توقف پخش', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+            await player.getByRole('button', { name: 'توقف پخش', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
             const started = await audioState(page);
             assert(started.src.includes(expected[label]), `${label}: wrong media source ${started.src}`);
             assert(Number.isFinite(started.duration) && started.duration > 800, `${label}: invalid duration ${started.duration}`);
@@ -97,7 +99,7 @@ jobs:
             await waitForProgress(page, baseline);
             const progressed = await audioState(page);
             assert(progressed.currentTime > baseline, `${label}: currentTime did not advance`);
-            await page.getByRole('button', { name: 'توقف پخش', exact: true }).click();
+            await player.getByRole('button', { name: 'توقف پخش', exact: true }).click();
             await page.waitForTimeout(250);
             const paused = await audioState(page);
             assert(paused.paused, `${label}: audio did not pause`);
@@ -108,26 +110,27 @@ jobs:
             const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
             const page = await context.newPage();
             await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-            await page.getByRole('group', { name: 'انتخاب صدای روایت' }).waitFor({ state: 'visible', timeout: 30000 });
-            assert(await page.getByRole('button', { name: 'صدای زن زبدینو', exact: true }).count() === 1, 'female voice selector missing');
-            assert(await page.getByRole('button', { name: 'صدای مرد زبدینو', exact: true }).count() === 1, 'male voice selector missing');
+            const player = page.locator('#player');
+            await player.getByRole('group', { name: 'انتخاب صدای روایت' }).waitFor({ state: 'visible', timeout: 30000 });
+            assert(await player.getByRole('button', { name: 'صدای زن زبدینو', exact: true }).count() === 1, 'female voice selector missing');
+            assert(await player.getByRole('button', { name: 'صدای مرد زبدینو', exact: true }).count() === 1, 'male voice selector missing');
 
             const female = await startAndPause(page, 'صدای زن زبدینو');
 
-            const range = page.getByRole('slider', { name: 'موقعیت پخش', exact: true });
+            const range = player.getByRole('slider', { name: 'موقعیت پخش', exact: true });
             await range.fill('60');
             await page.waitForTimeout(400);
             let state = await audioState(page);
             assert(Math.abs(state.currentTime - 60) < 4, `seek failed: ${state.currentTime}`);
 
             const beforeForward = state.currentTime;
-            await page.getByRole('button', { name: '۱۵ ثانیه بعد', exact: true }).click();
+            await player.getByRole('button', { name: '۱۵ ثانیه بعد', exact: true }).click();
             await page.waitForTimeout(300);
             state = await audioState(page);
             assert(state.currentTime >= beforeForward + 13, `forward skip failed: ${beforeForward} -> ${state.currentTime}`);
 
             const beforeBack = state.currentTime;
-            await page.getByRole('button', { name: '۱۵ ثانیه قبل', exact: true }).click();
+            await player.getByRole('button', { name: '۱۵ ثانیه قبل', exact: true }).click();
             await page.waitForTimeout(300);
             state = await audioState(page);
             assert(state.currentTime <= beforeBack - 13, `back skip failed: ${beforeBack} -> ${state.currentTime}`);
@@ -155,7 +158,8 @@ jobs:
             });
             const page = await context.newPage();
             await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-            await page.getByRole('group', { name: 'انتخاب صدای روایت' }).waitFor({ state: 'visible', timeout: 30000 });
+            const player = page.locator('#player');
+            await player.getByRole('group', { name: 'انتخاب صدای روایت' }).waitFor({ state: 'visible', timeout: 30000 });
             const female = await startAndPause(page, 'صدای زن زبدینو');
             const male = await startAndPause(page, 'صدای مرد زبدینو');
             await page.screenshot({ path: '.qa-report/mobile-atomic-habits.png', fullPage: true });
