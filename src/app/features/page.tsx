@@ -105,8 +105,8 @@ export default function FeaturesPage() {
     ? [
         { title: "پنج فرمت اصلی سند", text: "PDF، EPUB، DOCX، TXT و Markdown در قرارداد فعلی محصول پشتیبانی می‌شوند.", icon: FileText, status: "available" as const },
         { title: "خلاصه فارسی منبع‌دار", text: "خلاصه همراه provenance و Evidence طراحی شده تا کاربر بداند خروجی به کدام بخش منبع متکی است.", icon: BookOpenCheck, status: "available" as const },
-        { title: "صوت کامل + صوت خلاصه", text: "یک فایل می‌تواند به روایت کامل و نسخه شنیداری خلاصه تبدیل شود؛ QA نهایی رسانه دوصدایی در حال تکمیل است.", icon: Headphones, status: "finishing" as const },
-        { title: "دو صدای تأییدشده فارسی", text: "Sulafat و Schedar قرارداد رسمی صدای زبدینو هستند و promotion نهایی فقط بعد از QA انجام می‌شود.", icon: Waves, status: "finishing" as const },
+        { title: "صوت کامل + صوت خلاصه", text: "مسیر روایت کامل و نسخه شنیداری خلاصه در محصول فعال است؛ اولین مجموعه canonical دوصدایی برای عادت‌های اتمی QA و منتشر شده و rollout کتاب‌های بعدی ادامه دارد.", icon: Headphones, status: "available" as const },
+        { title: "دو صدای تأییدشده فارسی", text: "Sulafat و Schedar قرارداد رسمی صدای زبدینو هستند؛ هر دو برای عادت‌های اتمی QA شده و به media-v0.2.0-rc.1 ارتقا یافته‌اند.", icon: Waves, status: "available" as const },
         { title: "پردازش قابل ادامه", text: "Checkpoint مرحله‌ای، quota-paused و resume مانع از تولید دوباره بخش‌های تأییدشده می‌شوند.", icon: RefreshCw, status: "available" as const },
         { title: "کتابخانه خصوصی", text: "فایل و خروجی کاربر private-by-default است و تجربه برای بازکردن مجدد و ادامه طراحی شده است.", icon: Library, status: "available" as const },
         { title: "مرز امنیتی مرورگر", text: "مرورگر به secretهای provider و routeهای trusted generation دسترسی مستقیم ندارد.", icon: LockKeyhole, status: "available" as const },
@@ -116,8 +116,8 @@ export default function FeaturesPage() {
     : [
         { title: "Five core document formats", text: "PDF, EPUB, DOCX, TXT and Markdown are supported by the current product contract.", icon: FileText, status: "available" as const },
         { title: "Source-grounded Persian summaries", text: "Summary provenance and evidence are designed to show which source sections support generated output.", icon: BookOpenCheck, status: "available" as const },
-        { title: "Full audio + summary audio", text: "A file can produce full narration and a summary-audio output; final dual-voice media QA is being completed.", icon: Headphones, status: "finishing" as const },
-        { title: "Two approved Persian voices", text: "Sulafat and Schedar are Zobdino's canonical voice profiles; final promotion remains QA-gated.", icon: Waves, status: "finishing" as const },
+        { title: "Full audio + summary audio", text: "Full narration and summary-audio paths are active; the first canonical dual-voice set for Atomic Habits has passed QA and shipped, while rollout to additional books continues.", icon: Headphones, status: "available" as const },
+        { title: "Two approved Persian voices", text: "Sulafat and Schedar are Zobdino's canonical voice profiles; both are QA-passed and promoted for Atomic Habits in media-v0.2.0-rc.1.", icon: Waves, status: "available" as const },
         { title: "Resumable processing", text: "Stage checkpoints, quota-paused states and resume logic preserve already verified work.", icon: RefreshCw, status: "available" as const },
         { title: "Private library", text: "User files and generated outputs are private by default, with reopen and resume workflows built in.", icon: Library, status: "available" as const },
         { title: "Browser security boundary", text: "Provider secrets and trusted generation routes are never exposed directly to browser code.", icon: LockKeyhole, status: "available" as const },
