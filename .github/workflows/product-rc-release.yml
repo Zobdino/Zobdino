@@ -1,0 +1,116 @@
+name: Product Completion RC Release
+
+on:
+  push:
+    branches:
+      - qa/249-public-rc-smoke
+    paths:
+      - .github/workflows/product-rc-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: v0.2.0-rc.1
+      TARGET_SHA: c32bc8969968521dfea3b2800a3dc4924a12f70d
+    steps:
+      - name: Verify target and media release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_SHA" --jq '.sha' | grep -qx "$TARGET_SHA"
+          gh release view media-v0.2.0-rc.1 --repo "$GITHUB_REPOSITORY" >/dev/null
+
+      - name: Create product RC release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to overwrite."
+            exit 0
+          fi
+
+          cat > release-notes.md <<'EOF'
+          # Zobdino v0.2.0-rc.1 — Product Completion RC
+
+          This release marks the Product Completion release-candidate gate for Zobdino.
+
+          ## Product completion
+          - secure browser upload/runtime contracts for TXT, Markdown, DOCX, PDF and EPUB
+          - Persian summary + typed evidence/provenance
+          - private-library reopen/resume and explicit recovery states
+          - full/summary audio experience
+          - canonical dual-voice playback with Sulafat + Schedar
+          - Atomic Habits canonical RC media wired to the public product
+
+          ## Audio evidence
+          - completed-generation handoff Run `33852342391`
+          - exact-artifact QA Run `33856202404` PASS
+          - Sulafat Whisper score `0.9228`
+          - Schedar Whisper score `0.8396`
+          - acceptance threshold `0.60`
+          - pinned media release `media-v0.2.0-rc.1`
+          - release-side digest/bytes and download-back verification PASS
+          - browser playback Run `33886749612` PASS on desktop/mobile Chromium
+
+          ## Public RC evidence
+          - product source SHA `c32bc8969968521dfea3b2800a3dc4924a12f70d`
+          - GitHub Pages Run `33885531415` deployed that exact product SHA
+          - canonical URL `https://zobdino.ir/`
+          - DNS apex points to GitHub Pages
+          - public HTTPS/TLS smoke Run `33900632347` PASS
+          - all seven public RC routes HTTP 200
+          - stale pre-RC homepage/features copy absent
+          - critical favicon/logo/voice-preview assets PASS
+          - public-smoke evidence artifact `9947480267`
+          - evidence digest `sha256:9ccbb2eaa4393d3acfbe8dc7a5b11c640a449fe3b19fe65bd047d8c26dad319c`
+
+          ## Performance smoke
+          - worst observed TTFB: `0.266s`
+          - worst observed total response time: `0.274s`
+          - route: `/books/atomic-habits/`
+
+          ## Hosting policy
+          `zobdino.ir` is the canonical RC URL on GitHub Pages. Optional `www.zobdino.ir → zobdino.ir` redirect is deferred as non-blocking post-RC infrastructure polish in Issue #252.
+
+          ## Safety
+          No destructive DNS, database, payment, secret, or production-data mutation was required for this RC.
+          EOF
+
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$TARGET_SHA" \
+            --title "Zobdino v0.2.0-rc.1 — Product Completion RC" \
+            --notes-file release-notes.md \
+            --prerelease
+
+      - name: Verify created release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rc-release-evidence
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isPrerelease,url,targetCommitish \
+            > rc-release-evidence/release.json
+          cat rc-release-evidence/release.json
+          grep -q '"tagName":"v0.2.0-rc.1"' rc-release-evidence/release.json
+          grep -q '"isPrerelease":true' rc-release-evidence/release.json
+          printf 'target_product_sha=%s\n' "$TARGET_SHA" > rc-release-evidence/source.txt
+          printf 'public_smoke_run=33900632347\n' >> rc-release-evidence/source.txt
+          printf 'public_smoke_artifact=9947480267\n' >> rc-release-evidence/source.txt
+          printf 'public_smoke_digest=sha256:9ccbb2eaa4393d3acfbe8dc7a5b11c640a449fe3b19fe65bd047d8c26dad319c\n' >> rc-release-evidence/source.txt
+
+      - name: Upload release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-rc-release-${{ github.run_id }}
+          path: rc-release-evidence
+          if-no-files-found: error
+          retention-days: 14
