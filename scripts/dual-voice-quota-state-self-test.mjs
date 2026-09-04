@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import {
+  classifyControlledPause,
   classifyQuotaPause,
+  classifyTransientProviderPause,
+  createControlledPauseManifest,
   createQuotaPausedManifest,
 } from "./dual-voice-quota-state.mjs";
 
@@ -24,10 +27,31 @@ const transient429 = classifyQuotaPause(
 );
 assert.equal(transient429.state, "not-quota-paused");
 
-const provider500 = classifyQuotaPause(
+const highDemandFailure = new Error(
+  "TTS_STREAM_PROVIDER_ERROR: code=api_error; gemini-3.1-flash-tts-preview is currently experiencing high demand, spikes in demand are usually temporary. Please try again later.",
+);
+const transientProvider = classifyTransientProviderPause(highDemandFailure);
+assert.equal(transientProvider.state, "transient-provider-paused");
+assert.equal(transientProvider.reason, "transient-provider-high-demand");
+assert.equal(transientProvider.retryAfterMs, null);
+
+const controlledQuota = classifyControlledPause(realFailure);
+assert.equal(controlledQuota.state, "quota-paused");
+assert.equal(controlledQuota.pauseKind, "quota");
+
+const controlledProvider = classifyControlledPause(highDemandFailure);
+assert.equal(controlledProvider.state, "transient-provider-paused");
+assert.equal(controlledProvider.pauseKind, "transient-provider");
+
+const provider500 = classifyControlledPause(
   new Error("HTTP 500: upstream unavailable"),
 );
-assert.equal(provider500.state, "not-quota-paused");
+assert.equal(provider500.state, "not-controlled-paused");
+
+const authFailure = classifyControlledPause(
+  new Error("HTTP 401: invalid API key"),
+);
+assert.equal(authFailure.state, "not-controlled-paused");
 
 const manifest = createQuotaPausedManifest({
   batch: "batch-a-atomic",
@@ -52,6 +76,30 @@ assert.deepEqual(manifest, {
   checkpointArtifactId: "9802012875",
 });
 
+const transientManifest = createControlledPauseManifest({
+  batch: "batch-a-atomic",
+  voice: "Schedar",
+  outputPath: "atomic-habits/male/chunks/02-segments/009.wav",
+  error: highDemandFailure,
+  runId: 33846178111,
+  sourceSha: "f44f52cfd90983b159b9074a0d1e50a1cc65eb18",
+  checkpointArtifactId: 9926797382,
+});
+
+assert.deepEqual(transientManifest, {
+  schemaVersion: 1,
+  state: "quota-paused",
+  pauseKind: "transient-provider",
+  batch: "batch-a-atomic",
+  voice: "Schedar",
+  outputPath: "atomic-habits/male/chunks/02-segments/009.wav",
+  retryAfterMs: null,
+  reason: "transient-provider-high-demand",
+  runId: "33846178111",
+  sourceSha: "f44f52cfd90983b159b9074a0d1e50a1cc65eb18",
+  checkpointArtifactId: "9926797382",
+});
+
 console.log(
-  "Dual-voice quota-paused self-test PASS: explicit free-tier quota pauses deterministically; generic transient 429 remains retryable.",
+  "Dual-voice controlled-pause self-test PASS: quota exhaustion and known Gemini high-demand errors are resumable; generic 429/500/auth failures remain fail-closed.",
 );
