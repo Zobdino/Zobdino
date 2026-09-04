@@ -105,17 +105,14 @@ export default function PrivateLibrary() {
 
           {verifiedAssets.length ? (
             <div className="mt-5 grid min-w-0 gap-4 lg:grid-cols-2">
-              {verifiedAssets.map((asset) => {
-                const evidence = (asset as typeof asset & { evidence?: unknown }).evidence;
-                return (
-                  <article key={asset.id} className="min-w-0 rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
-                    <p className="truncate font-black">{asset.kind === "summary" ? "خلاصه فارسی" : asset.kind === "summary-audio" ? "خلاصه صوتی" : asset.kind === "full-audio" ? "روایت کامل" : asset.kind}</p>
-                    {asset.kind === "summary" && asset.text ? <p className="mt-3 max-h-72 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-8 text-zinc-600 dark:text-zinc-300">{asset.text}</p> : null}
-                    {asset.kind === "summary" ? <SourceEvidenceList evidence={evidence} /> : null}
-                    {(asset.kind === "summary-audio" || asset.kind === "full-audio") ? <RuntimeAssetPlayer asset={asset} resumeToken={active.resumeToken} /> : null}
-                  </article>
-                );
-              })}
+              {verifiedAssets.map((asset) => (
+                <article key={asset.id} className="min-w-0 rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
+                  <p className="truncate font-black">{asset.kind === "summary" ? "خلاصه فارسی" : asset.kind === "summary-audio" ? "خلاصه صوتی" : asset.kind === "full-audio" ? "روایت کامل" : asset.kind}</p>
+                  {asset.kind === "summary" && asset.text ? <p className="mt-3 max-h-72 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-8 text-zinc-600 dark:text-zinc-300">{asset.text}</p> : null}
+                  {asset.kind === "summary" ? <SourceEvidenceList evidence={asset.evidence} /> : null}
+                  {(asset.kind === "summary-audio" || asset.kind === "full-audio") ? <RuntimeAssetPlayer asset={asset} resumeToken={active.resumeToken} /> : null}
+                </article>
+              ))}
             </div>
           ) : <p className="mt-5 text-sm text-zinc-500">خروجی تأییدشده‌ای برای این پردازش ثبت نشده است.</p>}
         </div>
