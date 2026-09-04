@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import {
   Pause,
@@ -97,9 +98,12 @@ export default function GlobalMiniPlayer() {
 
       <div className="flex items-center gap-3 p-3 md:gap-5 md:p-4">
         {book && (
-          <img
+          <Image
             src={book.coverUrl}
             alt=""
+            width={48}
+            height={64}
+            unoptimized
             className="h-14 w-11 shrink-0 rounded-lg object-cover md:h-16 md:w-12"
           />
         )}

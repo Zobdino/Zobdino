@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Clock3, Headphones, LoaderCircle, Mic2, Sparkles } from "lucide-react";
 
@@ -30,11 +31,14 @@ export default async function BookPage({
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 md:py-14">
       <section className="mb-12 grid gap-8 md:grid-cols-[280px_1fr] md:items-start">
-        <div className="overflow-hidden rounded-3xl border border-gray-800 bg-gray-900 shadow-2xl shadow-accent/10">
-          <img
+        <div className="relative aspect-[3/4] overflow-hidden rounded-3xl border border-gray-800 bg-gray-900 shadow-2xl shadow-accent/10">
+          <Image
             src={book.coverUrl}
             alt={`جلد ${book.titleFa}`}
-            className="aspect-[3/4] h-full w-full object-cover"
+            fill
+            unoptimized
+            sizes="(max-width: 768px) 100vw, 280px"
+            className="object-cover"
           />
         </div>
 

@@ -33,7 +33,7 @@ export default function TranscriptPanel({
   } = usePlayer();
 
   const normalizedQuery = query.trim().toLocaleLowerCase("fa-IR");
-  const cues = episode.transcriptCues ?? [];
+  const cues = useMemo(() => episode.transcriptCues ?? [], [episode.transcriptCues]);
 
   const paragraphs = useMemo(
     () =>
