@@ -1,0 +1,215 @@
+name: Zobdino Completed Audio Artifact QA
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful quota-safe workflow run ID
+        required: true
+        type: string
+      artifact_id:
+        description: Completed dual-voice artifact ID
+        required: true
+        type: string
+      artifact_name:
+        description: Exact completed artifact name
+        required: true
+        type: string
+      artifact_digest:
+        description: Exact artifact sha256 digest metadata
+        required: true
+        type: string
+      source_head_sha:
+        description: Exact source workflow head SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: zobdino-completed-audio-artifact-qa
+  cancel-in-progress: false
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install FFmpeg and faster-whisper
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffprobe >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+          python3 -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install faster-whisper==1.2.1
+
+      - name: Verify pinned artifact metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+          ARTIFACT_DIGEST: ${{ inputs.artifact_digest }}
+          SOURCE_HEAD_SHA: ${{ inputs.source_head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]]
+          [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$SOURCE_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+          META="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID")"
+          [[ "$(jq -r .name <<<"$META")" == "$ARTIFACT_NAME" ]]
+          [[ "$(jq -r .expired <<<"$META")" == "false" ]]
+          [[ "$(jq -r .digest <<<"$META")" == "$ARTIFACT_DIGEST" ]]
+          [[ "$(jq -r .workflow_run.id <<<"$META")" == "$SOURCE_RUN_ID" ]]
+          [[ "$(jq -r .workflow_run.head_sha <<<"$META")" == "$SOURCE_HEAD_SHA" ]]
+          echo "Pinned completed artifact metadata PASS."
+
+      - name: Download and verify artifact bytes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ inputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          rm -rf .qa-source
+          mkdir -p .qa-source/unpacked
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > .qa-source/source.zip
+          ACTUAL="sha256:$(sha256sum .qa-source/source.zip | awk '{print $1}')"
+          [[ "$ACTUAL" == "$ARTIFACT_DIGEST" ]] || {
+            echo "::error::Completed artifact ZIP digest mismatch"
+            echo "Expected: $ARTIFACT_DIGEST"
+            echo "Actual:   $ACTUAL"
+            exit 1
+          }
+          unzip -q .qa-source/source.zip -d .qa-source/unpacked
+          echo "Completed artifact ZIP digest PASS: $ACTUAL"
+
+      - name: Verify manifest and exact Atomic Habits voices
+        shell: bash
+        run: |
+          set -euo pipefail
+          MANIFEST="$(find .qa-source/unpacked -type f -name dual-voice-manifest.json -print -quit)"
+          [[ -n "$MANIFEST" ]]
+          ROOT="$(dirname "$MANIFEST")"
+          echo "$ROOT" > .qa-source/root.txt
+
+          jq -e '.assets | length == 2' "$MANIFEST" >/dev/null
+          jq -e '[.assets[].bookSlug] | all(. == "atomic-habits")' "$MANIFEST" >/dev/null
+          jq -e '[.assets[].providerVoice] | sort == ["Schedar","Sulafat"]' "$MANIFEST" >/dev/null
+          jq -e '[.assets[].role] | sort == ["female","male"]' "$MANIFEST" >/dev/null
+          echo "Atomic Habits Sulafat + Schedar manifest contract PASS."
+
+      - name: Verify hashes bytes codecs and durations
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$(cat .qa-source/root.txt)"
+          MANIFEST="$ROOT/dual-voice-manifest.json"
+          mkdir -p .qa-report
+          : > .qa-report/assets.tsv
+
+          while IFS=$'\t' read -r ROLE VOICE DRY DRY_SHA DRY_BYTES PODCAST PODCAST_SHA PODCAST_BYTES; do
+            for SPEC in "$DRY|$DRY_SHA|$DRY_BYTES|dry" "$PODCAST|$PODCAST_SHA|$PODCAST_BYTES|podcast"; do
+              IFS='|' read -r REL EXPECTED_SHA EXPECTED_BYTES KIND <<<"$SPEC"
+              FILE="$ROOT/$REL"
+              test -s "$FILE"
+              ACTUAL_SHA="$(sha256sum "$FILE" | awk '{print $1}')"
+              ACTUAL_BYTES="$(stat -c %s "$FILE")"
+              [[ "$ACTUAL_SHA" == "$EXPECTED_SHA" ]]
+              [[ "$ACTUAL_BYTES" == "$EXPECTED_BYTES" ]]
+              ffprobe -v error "$FILE" >/dev/null
+              DURATION="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$FILE")"
+              if [[ "$KIND" == "podcast" ]]; then
+                awk -v d="$DURATION" 'BEGIN { exit !(d >= 600 && d <= 1335) }'
+              fi
+              printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ROLE" "$VOICE" "$KIND" "$ACTUAL_SHA" "$ACTUAL_BYTES" "$DURATION" >> .qa-report/assets.tsv
+              echo "Audio integrity PASS: $ROLE / $VOICE / $KIND / ${DURATION}s"
+            done
+          done < <(jq -r '.assets[] | [.role,.providerVoice,.dry.path,.dry.sha256,.dry.bytes,.podcast.path,.podcast.sha256,.podcast.bytes] | @tsv' "$MANIFEST")
+
+      - name: Round-trip QA exact dry narrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          . .venv/bin/activate
+          ROOT="$(cat .qa-source/root.txt)"
+          MANIFEST="$ROOT/dual-voice-manifest.json"
+
+          while IFS=$'\t' read -r SLUG ROLE DRY; do
+            SCRIPT="$ROOT/$SLUG/script.display.fa.txt"
+            [[ -s "$SCRIPT" ]]
+            python scripts/audio-qa.py \
+              --audio "$ROOT/$DRY" \
+              --script "$SCRIPT" \
+              --out ".qa-report/$ROLE-audio-qa.json" \
+              --transcript-out ".qa-report/$ROLE-audio-qa-transcript.txt" \
+              --model small \
+              --threshold 0.60
+          done < <(jq -r '.assets[] | [.bookSlug,.role,.dry.path] | @tsv' "$MANIFEST")
+
+      - name: Validate artifact safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$(cat .qa-source/root.txt)"
+          FORBIDDEN="$(find "$ROOT" -type f \( -name '.env' -o -name '.env.*' -o -iname '*credential*' -o -iname '*secret*' -o -iname '*.pem' -o -iname '*.key' -o -iname 'id_rsa*' \) -print)"
+          [[ -z "$FORBIDDEN" ]] || {
+            echo "::error::Secret-like files found in completed audio artifact"
+            printf '%s\n' "$FORBIDDEN"
+            exit 1
+          }
+          if grep -R -E -q --include='*.json' --include='*.txt' --include='*.md' '(GEMINI_API_KEY|AIza[0-9A-Za-z_-]{20,})' "$ROOT"; then
+            echo "::error::Potential API key material found in completed audio artifact"
+            exit 1
+          fi
+          echo "Artifact safety PASS."
+
+      - name: Write sanitized QA evidence
+        shell: bash
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+          ARTIFACT_DIGEST: ${{ inputs.artifact_digest }}
+          SOURCE_HEAD_SHA: ${{ inputs.source_head_sha }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg sourceRunId "$SOURCE_RUN_ID" \
+            --arg artifactId "$ARTIFACT_ID" \
+            --arg artifactName "$ARTIFACT_NAME" \
+            --arg artifactDigest "$ARTIFACT_DIGEST" \
+            --arg sourceHeadSha "$SOURCE_HEAD_SHA" \
+            '{schemaVersion:1,state:"qa-passed",bookSlug:"atomic-habits",voices:["Sulafat","Schedar"],sourceRunId:$sourceRunId,artifactId:$artifactId,artifactName:$artifactName,artifactDigest:$artifactDigest,sourceHeadSha:$sourceHeadSha,productionPromoted:false}' \
+            > .qa-report/qa-evidence.json
+
+      - name: Upload sanitized Audio QA report
+        uses: actions/upload-artifact@v7
+        with:
+          name: atomic-habits-dual-voice-qa-${{ github.run_id }}
+          path: .qa-report
+          if-no-files-found: error
+          retention-days: 14
