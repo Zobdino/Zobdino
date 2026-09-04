@@ -220,6 +220,42 @@ jobs:
             -f resume_run_id="$GITHUB_RUN_ID" \
             -f auto_resume_remaining="$NEXT_REMAINING"
 
+      - name: Verify completed output integrity
+        if: ${{ steps.generate.outputs.completed == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          MANIFEST=.dual-voice/dual-voice-manifest.json
+          test -s "$MANIFEST"
+          jq -e '.assets | length == 2' "$MANIFEST" >/dev/null
+
+          while IFS=$'\t' read -r ROLE VOICE DRY DRY_SHA DRY_BYTES PODCAST PODCAST_SHA PODCAST_BYTES; do
+            for SPEC in \
+              "$DRY|$DRY_SHA|$DRY_BYTES" \
+              "$PODCAST|$PODCAST_SHA|$PODCAST_BYTES"; do
+              IFS='|' read -r REL EXPECTED_SHA EXPECTED_BYTES <<<"$SPEC"
+              FILE=".dual-voice/$REL"
+              test -s "$FILE"
+              ACTUAL_SHA="$(sha256sum "$FILE" | awk '{print $1}')"
+              ACTUAL_BYTES="$(stat -c %s "$FILE")"
+              [[ "$ACTUAL_SHA" == "$EXPECTED_SHA" ]]
+              [[ "$ACTUAL_BYTES" == "$EXPECTED_BYTES" ]]
+            done
+            echo "Completed asset integrity PASS: $ROLE / $VOICE"
+          done < <(
+            jq -r '.assets[] | [.role,.providerVoice,.dry.path,.dry.sha256,.dry.bytes,.podcast.path,.podcast.sha256,.podcast.bytes] | @tsv' "$MANIFEST"
+          )
+
+      - name: Upload completed dual-voice QA handoff
+        if: ${{ steps.generate.outputs.completed == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: dual-voice-completed-${{ inputs.batch }}-${{ github.run_id }}
+          path: .dual-voice
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
       - name: Generation completed
         if: ${{ steps.generate.outputs.completed == 'true' }}
-        run: echo "Generation completed without quota exhaustion; hand off to the existing QA/release workflow."
+        run: echo "Generation completed and persisted as a run-scoped QA handoff artifact; no media promotion performed."
