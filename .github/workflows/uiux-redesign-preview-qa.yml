@@ -59,6 +59,15 @@ jobs:
           const base = 'http://127.0.0.1:4173';
           const report = { checkedAt: new Date().toISOString(), cases: [], result: 'running' };
           const assert = (value, message) => { if (!value) throw new Error(message); };
+          const normalizePath = (value) => {
+            if (!value) return null;
+            try {
+              const path = new URL(value, base).pathname;
+              return path.length > 1 ? path.replace(/\/+$/, '') : path;
+            } catch {
+              return value;
+            }
+          };
 
           async function inspect(browser, name, viewport, dark = false) {
             const context = await browser.newContext({ viewport, colorScheme: dark ? 'dark' : 'light' });
@@ -70,7 +79,15 @@ jobs:
             const data = await page.evaluate(() => {
               const doc = document.documentElement;
               const body = document.body;
-              const primary = [...document.querySelectorAll('a')].find((a) => a.getAttribute('href') === '/upload');
+              const primary = [...document.querySelectorAll('a')].find((a) => {
+                const href = a.getAttribute('href') || '';
+                try {
+                  const path = new URL(href, location.href).pathname.replace(/\/+$/, '');
+                  return path === '/upload';
+                } catch {
+                  return href === '/upload' || href === '/upload/';
+                }
+              });
               const h1 = document.querySelector('h1');
               const unlabeledButtons = [...document.querySelectorAll('button')].filter((button) => {
                 const text = (button.textContent || '').trim();
@@ -90,14 +107,15 @@ jobs:
               };
             });
 
+            await page.screenshot({ path: `.qa-uiux/${name}.png`, fullPage: true });
+            report.cases.push({ name, viewport, dark, ...data, primaryPath: normalizePath(data.primaryHref) });
+
             assert(data.scrollWidth <= data.clientWidth + 1, `${name}: horizontal overflow ${data.scrollWidth}/${data.clientWidth}`);
-            assert(data.primaryHref === '/upload', `${name}: primary upload CTA missing`);
+            assert(normalizePath(data.primaryHref) === '/upload', `${name}: primary upload CTA missing (${data.primaryHref})`);
             assert(data.h1.includes('زبدینو'), `${name}: user-outcome hero h1 missing`);
             assert(data.unlabeledButtons === 0, `${name}: unlabeled buttons ${data.unlabeledButtons}`);
             assert(data.imagesWithoutAlt === 0, `${name}: images without alt ${data.imagesWithoutAlt}`);
 
-            await page.screenshot({ path: `.qa-uiux/${name}.png`, fullPage: true });
-            report.cases.push({ name, viewport, dark, ...data });
             await context.close();
           }
 
