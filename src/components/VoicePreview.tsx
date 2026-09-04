@@ -30,12 +30,12 @@ export default function VoicePreview() {
             id="approved-voice-preview-title"
             className="mt-2 text-2xl font-extrabold md:text-3xl"
           >
-            دو صدای تأییدشده برای نسخه جدید زبدینو
+            دو صدای تأییدشده زبدینو
           </h2>
           <p className="mt-3 text-sm leading-7 text-gray-400">
-            این‌ها نمونه‌های کوتاه از دو صدایی هستند که برای روایت نهایی تأیید
-            شده‌اند. اپیزودهای کامل دوصدایی هنوز در مرحله تولید و QA هستند و
-            پلیر فعلی تا پایان آن فرایند از صدای Production موجود استفاده می‌کند.
+            Sulafat و Schedar هر دو برای عادت‌های اتمی از QA نهایی عبور کرده‌اند
+            و نسخه‌های کامل immutable آن‌ها در Release Candidate فعال هستند.
+            نمونه‌های کوتاه زیر برای مقایسه سریع جنس صدا باقی مانده‌اند.
           </p>
         </div>
 
@@ -76,4 +76,3 @@ export default function VoicePreview() {
     </section>
   );
 }
-
