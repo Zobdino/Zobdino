@@ -1,0 +1,194 @@
+name: Atomic Habits Browser Playback QA
+
+on:
+  push:
+    branches:
+      - qa/148-browser-playback-gate
+
+permissions:
+  contents: read
+
+jobs:
+  playback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      QA_URL: https://zobdino.vercel.app/books/atomic-habits
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Playwright Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Run real-browser playback acceptance
+        shell: bash
+        run: |
+          mkdir -p .qa-report
+          cat > /tmp/atomic-habits-browser-qa.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs/promises';
+
+          const url = process.env.QA_URL;
+          const expected = {
+            'صدای زن زبدینو': 'atomic-habits-sulafat-v1.mp3',
+            'صدای مرد زبدینو': 'atomic-habits-schedar-v1.mp3',
+          };
+
+          const evidence = {
+            url,
+            checkedAt: new Date().toISOString(),
+            desktop: {},
+            mobile: {},
+            result: 'running',
+          };
+
+          const assert = (condition, message) => {
+            if (!condition) throw new Error(message);
+          };
+
+          async function audioState(page) {
+            return page.locator('body > audio').evaluate((audio) => ({
+              src: audio.currentSrc || audio.src,
+              currentTime: audio.currentTime,
+              duration: audio.duration,
+              paused: audio.paused,
+              readyState: audio.readyState,
+              error: audio.error ? { code: audio.error.code, message: audio.error.message } : null,
+            }));
+          }
+
+          async function waitForProgress(page, baseline, minAdvance = 0.5) {
+            await page.waitForFunction(
+              ({ baseline, minAdvance }) => {
+                const audio = document.querySelector('body > audio');
+                return audio && !audio.paused && audio.currentTime >= baseline + minAdvance;
+              },
+              { baseline, minAdvance },
+              { timeout: 30000 },
+            );
+          }
+
+          async function chooseVoice(page, label) {
+            const button = page.getByRole('button', { name: label, exact: true });
+            await button.waitFor({ state: 'visible' });
+            if ((await button.getAttribute('aria-pressed')) !== 'true') {
+              await button.click();
+            }
+            await page.waitForTimeout(300);
+          }
+
+          async function startAndPause(page, label) {
+            await chooseVoice(page, label);
+            const play = page.getByRole('button', { name: 'شروع پخش', exact: true });
+            await play.click();
+            await page.getByRole('button', { name: 'توقف پخش', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+            const started = await audioState(page);
+            assert(started.src.includes(expected[label]), `${label}: wrong media source ${started.src}`);
+            assert(Number.isFinite(started.duration) && started.duration > 800, `${label}: invalid duration ${started.duration}`);
+            const baseline = started.currentTime;
+            await waitForProgress(page, baseline);
+            const progressed = await audioState(page);
+            assert(progressed.currentTime > baseline, `${label}: currentTime did not advance`);
+            await page.getByRole('button', { name: 'توقف پخش', exact: true }).click();
+            await page.waitForTimeout(250);
+            const paused = await audioState(page);
+            assert(paused.paused, `${label}: audio did not pause`);
+            return { started, progressed, paused };
+          }
+
+          async function desktopAcceptance(browser) {
+            const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+            const page = await context.newPage();
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+            await page.getByRole('group', { name: 'انتخاب صدای روایت' }).waitFor({ state: 'visible', timeout: 30000 });
+            assert(await page.getByRole('button', { name: 'صدای زن زبدینو', exact: true }).count() === 1, 'female voice selector missing');
+            assert(await page.getByRole('button', { name: 'صدای مرد زبدینو', exact: true }).count() === 1, 'male voice selector missing');
+
+            const female = await startAndPause(page, 'صدای زن زبدینو');
+
+            const range = page.getByRole('slider', { name: 'موقعیت پخش' });
+            await range.fill('60');
+            await page.waitForTimeout(400);
+            let state = await audioState(page);
+            assert(Math.abs(state.currentTime - 60) < 4, `seek failed: ${state.currentTime}`);
+
+            const beforeForward = state.currentTime;
+            await page.getByRole('button', { name: '۱۵ ثانیه بعد', exact: true }).click();
+            await page.waitForTimeout(300);
+            state = await audioState(page);
+            assert(state.currentTime >= beforeForward + 13, `forward skip failed: ${beforeForward} -> ${state.currentTime}`);
+
+            const beforeBack = state.currentTime;
+            await page.getByRole('button', { name: '۱۵ ثانیه قبل', exact: true }).click();
+            await page.waitForTimeout(300);
+            state = await audioState(page);
+            assert(state.currentTime <= beforeBack - 13, `back skip failed: ${beforeBack} -> ${state.currentTime}`);
+
+            const switchFrom = state.currentTime;
+            await chooseVoice(page, 'صدای مرد زبدینو');
+            await page.waitForTimeout(500);
+            const switched = await audioState(page);
+            assert(switched.src.includes(expected['صدای مرد زبدینو']), `voice switch source failed: ${switched.src}`);
+            assert(switched.paused, 'voice switch unexpectedly autoplayed');
+            assert(Math.abs(switched.currentTime - switchFrom) < 5, `voice switch did not preserve timestamp: ${switchFrom} -> ${switched.currentTime}`);
+
+            const male = await startAndPause(page, 'صدای مرد زبدینو');
+            await page.screenshot({ path: '.qa-report/desktop-atomic-habits.png', fullPage: true });
+            await context.close();
+            return { female, seekAndSkip: state, switched, male };
+          }
+
+          async function mobileAcceptance(browser) {
+            const context = await browser.newContext({
+              viewport: { width: 390, height: 844 },
+              isMobile: true,
+              hasTouch: true,
+              userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36',
+            });
+            const page = await context.newPage();
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+            await page.getByRole('group', { name: 'انتخاب صدای روایت' }).waitFor({ state: 'visible', timeout: 30000 });
+            const female = await startAndPause(page, 'صدای زن زبدینو');
+            const male = await startAndPause(page, 'صدای مرد زبدینو');
+            await page.screenshot({ path: '.qa-report/mobile-atomic-habits.png', fullPage: true });
+            await context.close();
+            return { female, male };
+          }
+
+          const browser = await chromium.launch({
+            headless: true,
+            args: ['--autoplay-policy=no-user-gesture-required'],
+          });
+
+          try {
+            evidence.desktop = await desktopAcceptance(browser);
+            evidence.mobile = await mobileAcceptance(browser);
+            evidence.result = 'pass';
+          } catch (error) {
+            evidence.result = 'fail';
+            evidence.error = error instanceof Error ? error.stack || error.message : String(error);
+            throw error;
+          } finally {
+            await fs.writeFile('.qa-report/browser-playback-evidence.json', JSON.stringify(evidence, null, 2));
+            await browser.close();
+          }
+          EOF
+          node /tmp/atomic-habits-browser-qa.mjs
+
+      - name: Upload sanitized browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atomic-habits-browser-playback-${{ github.run_id }}
+          path: .qa-report
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
