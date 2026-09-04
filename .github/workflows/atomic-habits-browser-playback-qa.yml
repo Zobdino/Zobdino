@@ -114,7 +114,7 @@ jobs:
 
             const female = await startAndPause(page, 'صدای زن زبدینو');
 
-            const range = page.getByRole('slider', { name: 'موقعیت پخش' });
+            const range = page.getByRole('slider', { name: 'موقعیت پخش', exact: true });
             await range.fill('60');
             await page.waitForTimeout(400);
             let state = await audioState(page);
