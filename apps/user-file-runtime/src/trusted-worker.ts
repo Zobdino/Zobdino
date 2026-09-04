@@ -43,7 +43,7 @@ function authorized(request: Request, env: RuntimeEnv) {
 }
 
 function validFormat(value: unknown): value is UserFileFormat {
-  return ["pdf", "epub", "txt", "markdown"].includes(String(value));
+  return ["pdf", "epub", "txt", "markdown", "docx"].includes(String(value));
 }
 
 function validMode(value: unknown): value is UserFileMode {
