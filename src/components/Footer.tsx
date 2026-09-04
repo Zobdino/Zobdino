@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, Github } from "lucide-react";
+import { ArrowLeft, ExternalLink } from "lucide-react";
 
 import { useLocale } from "@/components/LocaleProvider";
 
@@ -54,7 +54,7 @@ export default function Footer() {
               rel="noreferrer"
               className="inline-flex items-center gap-2"
             >
-              <Github size={15} /> GitHub
+              <ExternalLink size={15} /> GitHub
             </a>
             <Link href="/catalog">{fa ? "کتابخانه عمومی" : "Catalog"}</Link>
           </div>
