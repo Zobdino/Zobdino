@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { Play } from "lucide-react";
 
@@ -45,9 +46,12 @@ export default function ContinueListening() {
       <div className="overflow-hidden rounded-3xl border border-accent/25 bg-gradient-to-l from-accent/10 to-surface/50 p-5 md:p-6">
         <div className="flex items-center gap-5">
           {book && (
-            <img
+            <Image
               src={book.coverUrl}
               alt=""
+              width={72}
+              height={96}
+              unoptimized
               className="h-24 w-18 rounded-xl object-cover shadow-xl"
             />
           )}
