@@ -1,0 +1,101 @@
+name: Brand V2 Live Smoke
+
+on:
+  push:
+    branches:
+      - qa/262-postdeploy-live-smoke
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Live production acceptance
+        shell: bash
+        run: |
+          mkdir -p .qa-live-brand
+          cat > live-brand-smoke.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs/promises';
+
+          const base = 'https://zobdino.ir';
+          const report = { checkedAt: new Date().toISOString(), base, routes: [], result: 'running' };
+          const assert = (v, m) => { if (!v) throw new Error(m); };
+          const browser = await chromium.launch({ headless: true });
+
+          try {
+            for (const [name, path] of [['home','/'],['atomic','/books/atomic-habits/'],['upload','/upload/'],['books','/books/'],['features','/features/'],['about','/about/']]) {
+              const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+              await context.addInitScript(() => localStorage.setItem('zobdino-locale', 'fa'));
+              const page = await context.newPage();
+              const response = await page.goto(base + path, { waitUntil: 'networkidle', timeout: 60000 });
+              const data = await page.evaluate(() => ({
+                title: document.title,
+                h1: document.querySelector('h1')?.textContent?.replace(/\s+/g,' ').trim() || '',
+                mark: Boolean(document.querySelector('img[src*="zobdino-mark-v2.svg"]')),
+                overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+              }));
+              await page.screenshot({ path: `.qa-live-brand/${name}.png`, fullPage: true });
+              assert(response?.ok(), `${name}: ${response?.status()}`);
+              assert(data.h1, `${name}: missing h1`);
+              assert(!data.overflow, `${name}: horizontal overflow`);
+              if (name === 'home') {
+                assert(data.mark, 'home: approved mark missing');
+                const text = await page.locator('body').innerText();
+                assert(text.includes('عادت‌های اتمی'), 'home: Atomic Habits reference missing');
+                assert(text.includes('تبدیل فایل شخصی'), 'home: primary CTA missing');
+              }
+              report.routes.push({ name, path, ...data, status: response?.status() });
+              await context.close();
+            }
+
+            const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+            await context.addInitScript(() => localStorage.setItem('zobdino-locale', 'fa'));
+            const page = await context.newPage();
+            await page.goto(base + '/books/atomic-habits/', { waitUntil: 'networkidle', timeout: 60000 });
+            const voices = page.getByRole('group', { name: 'انتخاب صدای روایت' }).getByRole('button');
+            assert(await voices.count() === 2, `atomic mobile: expected 2 voices, got ${await voices.count()}`);
+            await page.screenshot({ path: '.qa-live-brand/atomic-mobile.png', fullPage: true });
+            await context.close();
+
+            report.result = 'pass';
+          } catch (error) {
+            report.result = 'fail';
+            report.error = error instanceof Error ? error.stack || error.message : String(error);
+            throw error;
+          } finally {
+            await fs.writeFile('.qa-live-brand/report.json', JSON.stringify(report, null, 2));
+            await browser.close();
+          }
+          EOF
+          node live-brand-smoke.mjs
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: brand-v2-live-${{ github.run_id }}
+          path: .qa-live-brand
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
