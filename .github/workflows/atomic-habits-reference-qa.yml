@@ -1,0 +1,185 @@
+name: Atomic Habits Reference QA
+
+on:
+  push:
+    branches:
+      - feat/260-atomic-habits-reference-complete-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Quality and build contracts
+        run: |
+          npm run lint
+          npm run typecheck
+          npm run check:text
+          npm run check:episodes
+          npm run pipeline:voice:validate
+          npm run voice:dual:resume:validate
+          npm run build
+
+      - name: Install Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Serve branch build
+        shell: bash
+        run: |
+          python3 -m http.server 4173 --directory out > /tmp/zobdino-atomic-reference.log 2>&1 &
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4173/books/atomic-habits/ > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/zobdino-atomic-reference.log
+          exit 1
+
+      - name: Chromium Atomic Habits reference acceptance
+        shell: bash
+        run: |
+          mkdir -p .qa-atomic-reference .qa-runner
+          cat > .qa-runner/atomic-reference-qa.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs/promises';
+
+          const url = 'http://127.0.0.1:4173/books/atomic-habits/';
+          const expected = {
+            female: 'atomic-habits-sulafat-v1.mp3',
+            male: 'atomic-habits-schedar-v1.mp3',
+          };
+          const report = { checkedAt: new Date().toISOString(), cases: [], playback: {}, result: 'running' };
+          const assert = (value, message) => { if (!value) throw new Error(message); };
+
+          async function audioState(page) {
+            return page.locator('body > audio').evaluate((audio) => ({
+              src: audio.currentSrc || audio.src,
+              currentTime: audio.currentTime,
+              duration: audio.duration,
+              paused: audio.paused,
+            }));
+          }
+
+          async function visual(browser, name, viewport, dark) {
+            const context = await browser.newContext({ viewport, colorScheme: dark ? 'dark' : 'light' });
+            const page = await context.newPage();
+            await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
+            if (dark) await page.evaluate(() => document.documentElement.classList.add('dark'));
+            await page.waitForTimeout(300);
+
+            const data = await page.evaluate(() => {
+              const doc = document.documentElement;
+              const text = document.body.innerText;
+              const unlabeledButtons = [...document.querySelectorAll('button')].filter((button) => {
+                const buttonText = (button.textContent || '').trim();
+                return !buttonText && !button.getAttribute('aria-label') && !button.getAttribute('aria-labelledby');
+              }).length;
+              return {
+                scrollWidth: doc.scrollWidth,
+                clientWidth: doc.clientWidth,
+                h1: (document.querySelector('h1')?.textContent || '').trim(),
+                summary: Boolean(document.querySelector('#summary')),
+                player: Boolean(document.querySelector('#player')),
+                evidence: Boolean(document.querySelector('#evidence')),
+                transcript: Boolean(document.querySelector('#transcript')),
+                actions: Boolean(document.querySelector('#actions')),
+                fullReferenceBadge: text.includes('نمونه کامل زبدینو'),
+                oldBrandVisible: text.includes('کتاب‌کست') || text.includes('کتاب کست') || text.includes('KetabCast'),
+                unlabeledButtons,
+              };
+            });
+
+            await page.screenshot({ path: `.qa-atomic-reference/${name}.png`, fullPage: true });
+            report.cases.push({ name, viewport, dark, ...data });
+            assert(data.scrollWidth <= data.clientWidth + 1, `${name}: horizontal overflow`);
+            assert(data.h1.includes('عادت‌های اتمی'), `${name}: book heading missing`);
+            assert(data.summary && data.player && data.evidence && data.transcript && data.actions, `${name}: one or more reference sections missing`);
+            assert(data.fullReferenceBadge, `${name}: complete reference badge missing`);
+            assert(!data.oldBrandVisible, `${name}: legacy KetabCast branding visible`);
+            assert(data.unlabeledButtons === 0, `${name}: unlabeled buttons ${data.unlabeledButtons}`);
+
+            for (const id of ['summary', 'player', 'evidence', 'transcript', 'actions']) {
+              const href = `#${id}`;
+              const link = page.locator(`a[href="${href}"]`);
+              assert(await link.count() === 1, `${name}: nav link ${href} missing or duplicated`);
+            }
+            await context.close();
+          }
+
+          async function playback(browser) {
+            const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+            const page = await context.newPage();
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+            const player = page.locator('#player');
+            const group = player.getByRole('group', { name: 'انتخاب صدای روایت' });
+            await group.waitFor({ state: 'visible', timeout: 30000 });
+
+            const female = group.getByRole('button', { name: 'صدای زن زبدینو', exact: true });
+            if ((await female.getAttribute('aria-pressed')) !== 'true') await female.click();
+            await player.getByRole('button', { name: 'شروع پخش', exact: true }).click();
+            await page.waitForFunction(() => {
+              const audio = document.querySelector('body > audio');
+              return audio && !audio.paused && audio.currentTime > 0.4;
+            }, null, { timeout: 30000 });
+            const femaleState = await audioState(page);
+            assert(femaleState.src.includes(expected.female), `female source mismatch ${femaleState.src}`);
+            await player.getByRole('button', { name: 'توقف پخش', exact: true }).click();
+
+            const beforeSwitch = (await audioState(page)).currentTime;
+            await group.getByRole('button', { name: 'صدای مرد زبدینو', exact: true }).click();
+            await page.waitForTimeout(500);
+            const switched = await audioState(page);
+            assert(switched.src.includes(expected.male), `male source mismatch ${switched.src}`);
+            assert(switched.paused, 'voice switch autoplayed unexpectedly');
+            assert(Math.abs(switched.currentTime - beforeSwitch) < 5, `timestamp not preserved ${beforeSwitch} -> ${switched.currentTime}`);
+            report.playback = { femaleState, beforeSwitch, switched };
+            await context.close();
+          }
+
+          const browser = await chromium.launch({ headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
+          try {
+            await visual(browser, 'desktop-light', { width: 1440, height: 1000 }, false);
+            await visual(browser, 'desktop-dark', { width: 1440, height: 1000 }, true);
+            await visual(browser, 'mobile-light', { width: 390, height: 844 }, false);
+            await visual(browser, 'mobile-dark', { width: 390, height: 844 }, true);
+            await playback(browser);
+            report.result = 'pass';
+          } catch (error) {
+            report.result = 'fail';
+            report.error = error instanceof Error ? error.stack || error.message : String(error);
+            throw error;
+          } finally {
+            await fs.writeFile('.qa-atomic-reference/report.json', JSON.stringify(report, null, 2));
+            await browser.close();
+          }
+          EOF
+          node .qa-runner/atomic-reference-qa.mjs
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atomic-habits-reference-${{ github.run_id }}
+          path: .qa-atomic-reference
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
