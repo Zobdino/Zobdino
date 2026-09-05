@@ -1,0 +1,158 @@
+name: UIUX Books Catalog QA
+
+on:
+  push:
+    branches:
+      - design/253-books-catalog-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Quality gates
+        run: |
+          npm run lint
+          npm run typecheck
+          npm run check:text
+          npm run check:episodes
+          npm run build
+
+      - name: Install Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Serve branch build
+        shell: bash
+        run: |
+          python3 -m http.server 4173 --directory out > /tmp/zobdino-books-catalog-server.log 2>&1 &
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/zobdino-books-catalog-server.log
+          exit 1
+
+      - name: Chromium visual and interaction acceptance
+        shell: bash
+        run: |
+          mkdir -p .qa-books-catalog .qa-runner
+          cat > .qa-runner/books-catalog-qa.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs/promises';
+
+          const base = 'http://127.0.0.1:4173';
+          const routes = [
+            ['books', '/books/'],
+            ['catalog', '/catalog/'],
+            ['catalog-detail', '/catalog/as-a-man-thinketh/'],
+          ];
+          const cases = [
+            ['desktop-light', { width: 1440, height: 1000 }, false],
+            ['desktop-dark', { width: 1440, height: 1000 }, true],
+            ['mobile-light', { width: 390, height: 844 }, false],
+            ['mobile-dark', { width: 390, height: 844 }, true],
+          ];
+          const report = { checkedAt: new Date().toISOString(), cases: [], interactions: {}, result: 'running' };
+          const assert = (value, message) => { if (!value) throw new Error(message); };
+
+          async function inspect(browser, routeName, path, caseName, viewport, dark) {
+            const context = await browser.newContext({ viewport, colorScheme: dark ? 'dark' : 'light' });
+            const page = await context.newPage();
+            await page.goto(base + path, { waitUntil: 'networkidle', timeout: 60000 });
+            if (dark) await page.evaluate(() => document.documentElement.classList.add('dark'));
+            await page.waitForTimeout(250);
+
+            const data = await page.evaluate(() => {
+              const doc = document.documentElement;
+              const h1 = document.querySelector('h1');
+              const unlabeledButtons = [...document.querySelectorAll('button')].filter((button) => {
+                const text = (button.textContent || '').trim();
+                return !text && !button.getAttribute('aria-label') && !button.getAttribute('aria-labelledby');
+              }).length;
+              const imagesWithoutAlt = [...document.querySelectorAll('img')].filter((img) => !img.hasAttribute('alt')).length;
+              return {
+                scrollWidth: doc.scrollWidth,
+                clientWidth: doc.clientWidth,
+                h1: (h1?.textContent || '').replace(/\s+/g, ' ').trim(),
+                unlabeledButtons,
+                imagesWithoutAlt,
+              };
+            });
+
+            await page.screenshot({ path: `.qa-books-catalog/${routeName}-${caseName}.png`, fullPage: true });
+            assert(data.scrollWidth <= data.clientWidth + 1, `${routeName}-${caseName}: overflow ${data.scrollWidth}/${data.clientWidth}`);
+            assert(Boolean(data.h1), `${routeName}-${caseName}: missing h1`);
+            assert(data.unlabeledButtons === 0, `${routeName}-${caseName}: unlabeled buttons ${data.unlabeledButtons}`);
+            assert(data.imagesWithoutAlt === 0, `${routeName}-${caseName}: images without alt ${data.imagesWithoutAlt}`);
+            report.cases.push({ routeName, caseName, viewport, dark, ...data });
+            await context.close();
+          }
+
+          async function interactionSmoke(browser) {
+            const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+            const page = await context.newPage();
+            await page.goto(base + '/books/', { waitUntil: 'networkidle', timeout: 60000 });
+
+            const search = page.locator('input[placeholder*="عنوان"]');
+            await search.fill('Atomic');
+            await page.waitForTimeout(150);
+            const atomicVisible = await page.locator('a[href*="atomic-habits"]').count();
+            assert(atomicVisible > 0, 'books interaction: Atomic search did not surface Atomic Habits');
+
+            await search.fill('');
+            const readyFilter = page.getByRole('button', { name: 'فقط آماده شنیدن' });
+            await readyFilter.click();
+            assert(await readyFilter.getAttribute('aria-pressed') === 'true', 'books interaction: ready filter did not activate');
+
+            report.interactions = { atomicSearch: 'pass', readyFilter: 'pass' };
+            await page.screenshot({ path: '.qa-books-catalog/books-filter-active.png', fullPage: true });
+            await context.close();
+          }
+
+          const browser = await chromium.launch({ headless: true });
+          try {
+            for (const [routeName, path] of routes) {
+              for (const [caseName, viewport, dark] of cases) {
+                await inspect(browser, routeName, path, caseName, viewport, dark);
+              }
+            }
+            await interactionSmoke(browser);
+            report.result = 'pass';
+          } catch (error) {
+            report.result = 'fail';
+            report.error = error instanceof Error ? error.stack || error.message : String(error);
+            throw error;
+          } finally {
+            await fs.writeFile('.qa-books-catalog/report.json', JSON.stringify(report, null, 2));
+            await browser.close();
+          }
+          EOF
+          node .qa-runner/books-catalog-qa.mjs
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uiux-books-catalog-${{ github.run_id }}
+          path: .qa-books-catalog
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
