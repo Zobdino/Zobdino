@@ -1,8 +1,20 @@
 import Image from "next/image";
 import { notFound } from "next/navigation";
-import { BookOpen, CheckCircle2, Clock3, Headphones, LoaderCircle, Sparkles } from "lucide-react";
+import {
+  BookOpen,
+  CheckCircle2,
+  Clock3,
+  ExternalLink,
+  Headphones,
+  Lightbulb,
+  ListChecks,
+  LoaderCircle,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 
 import BookAudioExperience from "@/components/BookAudioExperience";
+import { atomicHabitsReference } from "@/content/atomic-habits-reference";
 import { isProductionAudio } from "@/lib/audio";
 import { books } from "@/lib/books";
 import { episodes } from "@/lib/episodes";
@@ -21,10 +33,12 @@ export default async function BookPage({
   if (!book) return notFound();
 
   const bookEpisodes = episodes.filter((item) => item.bookSlug === book.slug);
-  const canonicalEpisode = bookEpisodes.find((item) => isProductionAudio(item.audio));
+  const canonicalEpisodes = bookEpisodes.filter((item) => isProductionAudio(item.audio));
+  const canonicalEpisode = canonicalEpisodes[0];
   const episode = canonicalEpisode ?? bookEpisodes[0];
   const ready = bookEpisodes.some((item) => item.audio.status === "ready");
-  const productionAudio = Boolean(canonicalEpisode);
+  const productionAudio = canonicalEpisodes.length > 0;
+  const isAtomicHabits = book.slug === "atomic-habits";
 
   return (
     <main>
@@ -52,6 +66,11 @@ export default async function BookPage({
                 {productionAudio ? <CheckCircle2 size={14} /> : ready ? <Headphones size={14} /> : <LoaderCircle size={14} />}
                 {productionAudio ? "نسخه صوتی تأییدشده" : ready ? "نسخه صوتی موجود" : "در حال آماده‌سازی"}
               </span>
+              {isAtomicHabits && canonicalEpisodes.length === 2 ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-3 py-1.5 text-xs font-black text-violet-700 dark:text-violet-300">
+                  <ShieldCheck size={14} /> نمونه کامل زبدینو
+                </span>
+              ) : null}
             </div>
 
             <p className="mt-6 text-sm font-bold z-muted">{book.titleEn}</p>
@@ -70,12 +89,52 @@ export default async function BookPage({
               ) : null}
               <span className="inline-flex items-center gap-2"><Sparkles size={16} /> خلاصه مستقل فارسی</span>
               <span className="inline-flex items-center gap-2"><BookOpen size={16} /> ایده‌های کلیدی</span>
+              {isAtomicHabits ? <span className="inline-flex items-center gap-2"><ShieldCheck size={16} /> Evidence منبع‌دار</span> : null}
             </div>
           </div>
         </div>
       </section>
 
       <div className="z-container py-10 md:py-14">
+        {isAtomicHabits ? (
+          <>
+            <nav aria-label="بخش‌های عادت‌های اتمی" className="mb-10 flex flex-wrap gap-2 rounded-2xl border border-black/7 bg-white/70 p-2 dark:border-white/8 dark:bg-white/[0.03]">
+              {[
+                ["#summary", "خلاصه"],
+                ["#player", "صوت"],
+                ["#evidence", "Evidence"],
+                ["#transcript", "متن صوت"],
+                ["#actions", "اقدام عملی"],
+              ].map(([href, label]) => (
+                <a key={href} href={href} className="z-focus rounded-xl px-4 py-2.5 text-sm font-black z-muted transition hover:bg-violet-500/10 hover:text-violet-700 dark:hover:text-violet-300">
+                  {label}
+                </a>
+              ))}
+            </nav>
+
+            <section id="summary" className="mb-12 scroll-mt-24">
+              <div className="mb-7 max-w-3xl">
+                <p className="z-eyebrow">خلاصه زبدینو</p>
+                <h2 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">کتاب در چهار ایده اصلی</h2>
+                <p className="mt-3 text-sm leading-7 z-muted md:text-base md:leading-8">
+                  این خلاصه با زبان مستقل زبدینو نوشته شده و به‌جای بازتولید متن کتاب، چارچوب‌های اصلی را برای فهم سریع و کاربرد عملی توضیح می‌دهد.
+                </p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {atomicHabitsReference.summary.map((item, index) => (
+                  <article key={item.title} className="rounded-[1.75rem] border border-black/7 bg-white/75 p-6 dark:border-white/8 dark:bg-white/[0.035]">
+                    <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-700 text-sm font-black text-white">
+                      {(index + 1).toLocaleString("fa-IR")}
+                    </div>
+                    <h3 className="text-xl font-black">{item.title}</h3>
+                    <p className="mt-3 text-sm leading-8 z-muted md:text-base">{item.body}</p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </>
+        ) : null}
+
         {bookEpisodes.length > 0 ? (
           <BookAudioExperience episodes={bookEpisodes} />
         ) : (
@@ -91,6 +150,50 @@ export default async function BookPage({
             </div>
           </section>
         )}
+
+        {isAtomicHabits ? (
+          <section id="evidence" className="mb-12 scroll-mt-24">
+            <div className="mb-7 max-w-3xl">
+              <p className="z-eyebrow">Evidence</p>
+              <h2 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">هر ادعای اصلی به منبع رسمی وصل است</h2>
+              <p className="mt-3 text-sm leading-7 z-muted md:text-base md:leading-8">
+                برای این نمونه مرجع، Evidence فقط از منابع رسمی James Clear استفاده می‌کند تا کاربر بتواند منبع هر چارچوب را مستقل بررسی کند.
+              </p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {atomicHabitsReference.evidence.map((item) => (
+                <article key={item.sourceUrl} className="rounded-[1.75rem] border border-emerald-500/15 bg-emerald-500/[0.045] p-6">
+                  <div className="inline-flex items-center gap-2 text-sm font-black text-emerald-700 dark:text-emerald-300">
+                    <ShieldCheck size={17} /> {item.sourceType}
+                  </div>
+                  <p className="mt-4 leading-8">{item.claim}</p>
+                  <a href={item.sourceUrl} target="_blank" rel="noreferrer" className="z-focus mt-5 inline-flex items-center gap-2 rounded-xl text-sm font-black text-violet-700 dark:text-violet-300">
+                    {item.sourceLabel} <ExternalLink size={15} />
+                  </a>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {isAtomicHabits ? (
+          <section id="actions" className="mb-12 scroll-mt-24">
+            <div className="mb-7 max-w-3xl">
+              <p className="z-eyebrow">از دانستن به انجام دادن</p>
+              <h2 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">پنج اقدام برای امروز</h2>
+            </div>
+            <ol className="grid gap-4 md:grid-cols-2">
+              {atomicHabitsReference.actions.map((action, index) => (
+                <li key={action} className="flex gap-4 rounded-3xl border border-black/7 bg-white/70 p-5 dark:border-white/8 dark:bg-white/[0.035]">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-700 dark:text-violet-300">
+                    {index === 0 ? <Lightbulb size={18} /> : <ListChecks size={18} />}
+                  </span>
+                  <span className="leading-8">{action}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
 
         {book.keyIdeas.length > 0 && (
           <section className="mb-12 pt-4">
