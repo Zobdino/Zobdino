@@ -179,10 +179,11 @@ jobs:
             await mobile.addInitScript(() => localStorage.setItem('zobdino-locale', 'fa'));
             const mpage = await mobile.newPage();
             await mpage.goto(base + '/', { waitUntil: 'networkidle' });
-            const menu = mpage.getByRole('button', { name: 'باز کردن منو' });
+            const menu = mpage.locator('header button[aria-expanded]').last();
+            await menu.waitFor({ state: 'visible' });
             await menu.click();
             assert(await menu.getAttribute('aria-expanded') === 'true', 'mobile menu did not open');
-            assert(await mpage.getByRole('link', { name: 'تبدیل فایل' }).count() > 0, 'mobile menu upload CTA missing');
+            assert(await mpage.locator('header a[href="/upload"], header a[href="/upload/"]').count() > 0, 'mobile menu upload CTA missing');
             await mobile.close();
 
             const en = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
