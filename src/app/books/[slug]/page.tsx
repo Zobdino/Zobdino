@@ -15,9 +15,15 @@ import {
 
 import BookAudioExperience from "@/components/BookAudioExperience";
 import { atomicHabitsReference } from "@/content/atomic-habits-reference";
+import { deepWorkReference } from "@/content/deep-work-reference";
 import { isProductionAudio } from "@/lib/audio";
 import { books } from "@/lib/books";
 import { episodes } from "@/lib/episodes";
+
+const referenceContentBySlug = {
+  "atomic-habits": atomicHabitsReference,
+  "deep-work": deepWorkReference,
+} as const;
 
 export async function generateStaticParams() {
   return books.map((book) => ({ slug: book.slug }));
@@ -38,7 +44,9 @@ export default async function BookPage({
   const episode = canonicalEpisode ?? bookEpisodes[0];
   const ready = bookEpisodes.some((item) => item.audio.status === "ready");
   const productionAudio = canonicalEpisodes.length > 0;
-  const isAtomicHabits = book.slug === "atomic-habits";
+  const referenceContent = referenceContentBySlug[book.slug as keyof typeof referenceContentBySlug];
+  const isReferenceComplete = Boolean(referenceContent);
+  const hasApprovedDualVoice = canonicalEpisodes.length === 2;
 
   return (
     <main>
@@ -66,7 +74,7 @@ export default async function BookPage({
                 {productionAudio ? <CheckCircle2 size={14} /> : ready ? <Headphones size={14} /> : <LoaderCircle size={14} />}
                 {productionAudio ? "نسخه صوتی تأییدشده" : ready ? "نسخه صوتی موجود" : "در حال آماده‌سازی"}
               </span>
-              {isAtomicHabits && canonicalEpisodes.length === 2 ? (
+              {isReferenceComplete && hasApprovedDualVoice ? (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-3 py-1.5 text-xs font-black text-violet-700 dark:text-violet-300">
                   <ShieldCheck size={14} /> نمونه کامل زبدینو
                 </span>
@@ -89,16 +97,16 @@ export default async function BookPage({
               ) : null}
               <span className="inline-flex items-center gap-2"><Sparkles size={16} /> خلاصه مستقل فارسی</span>
               <span className="inline-flex items-center gap-2"><BookOpen size={16} /> ایده‌های کلیدی</span>
-              {isAtomicHabits ? <span className="inline-flex items-center gap-2"><ShieldCheck size={16} /> Evidence منبع‌دار</span> : null}
+              {isReferenceComplete ? <span className="inline-flex items-center gap-2"><ShieldCheck size={16} /> Evidence منبع‌دار</span> : null}
             </div>
           </div>
         </div>
       </section>
 
       <div className="z-container py-10 md:py-14">
-        {isAtomicHabits ? (
+        {referenceContent ? (
           <>
-            <nav aria-label="بخش‌های عادت‌های اتمی" className="mb-10 flex flex-wrap gap-2 rounded-2xl border border-black/7 bg-white/70 p-2 dark:border-white/8 dark:bg-white/[0.03]">
+            <nav aria-label={`بخش‌های ${book.titleFa}`} className="mb-10 flex flex-wrap gap-2 rounded-2xl border border-black/7 bg-white/70 p-2 dark:border-white/8 dark:bg-white/[0.03]">
               {[
                 ["#summary", "خلاصه"],
                 ["#player", "صوت"],
@@ -121,7 +129,7 @@ export default async function BookPage({
                 </p>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
-                {atomicHabitsReference.summary.map((item, index) => (
+                {referenceContent.summary.map((item, index) => (
                   <article key={item.title} className="rounded-[1.75rem] border border-black/7 bg-white/75 p-6 dark:border-white/8 dark:bg-white/[0.035]">
                     <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-700 text-sm font-black text-white">
                       {(index + 1).toLocaleString("fa-IR")}
@@ -151,17 +159,17 @@ export default async function BookPage({
           </section>
         )}
 
-        {isAtomicHabits ? (
+        {referenceContent ? (
           <section id="evidence" className="mb-12 scroll-mt-24">
             <div className="mb-7 max-w-3xl">
               <p className="z-eyebrow">Evidence</p>
-              <h2 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">هر ادعای اصلی به منبع رسمی وصل است</h2>
+              <h2 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">ادعاهای اصلی به منبع قابل بررسی وصل‌اند</h2>
               <p className="mt-3 text-sm leading-7 z-muted md:text-base md:leading-8">
-                برای این نمونه مرجع، Evidence فقط از منابع رسمی James Clear استفاده می‌کند تا کاربر بتواند منبع هر چارچوب را مستقل بررسی کند.
+                Evidence این صفحه از منابع رسمی یا متادیتای معتبر استفاده می‌کند تا کاربر بتواند مبنای اطلاعات را مستقل بررسی کند.
               </p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              {atomicHabitsReference.evidence.map((item) => (
+              {referenceContent.evidence.map((item) => (
                 <article key={item.sourceUrl} className="rounded-[1.75rem] border border-emerald-500/15 bg-emerald-500/[0.045] p-6">
                   <div className="inline-flex items-center gap-2 text-sm font-black text-emerald-700 dark:text-emerald-300">
                     <ShieldCheck size={17} /> {item.sourceType}
@@ -176,14 +184,14 @@ export default async function BookPage({
           </section>
         ) : null}
 
-        {isAtomicHabits ? (
+        {referenceContent ? (
           <section id="actions" className="mb-12 scroll-mt-24">
             <div className="mb-7 max-w-3xl">
               <p className="z-eyebrow">از دانستن به انجام دادن</p>
               <h2 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">پنج اقدام برای امروز</h2>
             </div>
             <ol className="grid gap-4 md:grid-cols-2">
-              {atomicHabitsReference.actions.map((action, index) => (
+              {referenceContent.actions.map((action, index) => (
                 <li key={action} className="flex gap-4 rounded-3xl border border-black/7 bg-white/70 p-5 dark:border-white/8 dark:bg-white/[0.035]">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-700 dark:text-violet-300">
                     {index === 0 ? <Lightbulb size={18} /> : <ListChecks size={18} />}
