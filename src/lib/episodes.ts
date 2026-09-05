@@ -42,12 +42,20 @@ const atomicHabitsBase = baseEpisodes.find(
   (episode) => episode.bookSlug === "atomic-habits",
 );
 
+function canonicalizeAtomicHabitsTranscript(transcript: string) {
+  return transcript
+    .replaceAll("کتاب‌کست", "زبدینو")
+    .replaceAll("کتاب کست", "زبدینو")
+    .replaceAll("KetabCast", "Zobdino");
+}
+
 const canonicalAtomicHabitsEpisodes: readonly Episode[] = atomicHabitsBase
   ? (Object.entries(ATOMIC_HABITS_CANONICAL_AUDIO).map(
       ([voiceProfile, audio]) => ({
         ...atomicHabitsBase,
         id: `atomic-habits-${voiceProfile}`,
         title: `${atomicHabitsBase.title} · ${voiceProfile === "sulafat-v1" ? "صدای زن" : "صدای مرد"}`,
+        transcript: canonicalizeAtomicHabitsTranscript(atomicHabitsBase.transcript),
         audio,
       }),
     ) as readonly Episode[])
