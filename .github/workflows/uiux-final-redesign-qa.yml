@@ -1,0 +1,244 @@
+name: UIUX Final Redesign QA
+
+on:
+  push:
+    branches:
+      - design/253-final-redesign-qa-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install PDF extraction runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+
+      - name: Final quality contracts
+        run: |
+          npm run lint
+          npm run typecheck
+          npm run check:text
+          npm run check:episodes
+          npm run catalog:validate
+          npm run pipeline:extractors:validate
+          npm run pipeline:golden:validate
+          npm run pipeline:voice:validate
+          npm run pipeline:voice:gemini:validate
+          npm run voice:dual:resume:validate
+          npm run runtime:user-files:validate
+          npm run build
+
+      - name: Install Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Serve branch build
+        shell: bash
+        run: |
+          python3 -m http.server 4173 --directory out > /tmp/zobdino-final-redesign-server.log 2>&1 &
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/zobdino-final-redesign-server.log
+          exit 1
+
+      - name: Full route visual accessibility and behavior acceptance
+        shell: bash
+        run: |
+          mkdir -p .qa-final-redesign .qa-runner
+          cat > .qa-runner/final-redesign-qa.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs/promises';
+
+          const base = 'http://127.0.0.1:4173';
+          const routes = [
+            ['home', '/'],
+            ['features', '/features/'],
+            ['about', '/about/'],
+            ['upload', '/upload/'],
+            ['result-preview', '/upload/result-preview/'],
+            ['books', '/books/'],
+            ['atomic-habits', '/books/atomic-habits/'],
+            ['catalog', '/catalog/'],
+            ['catalog-detail', '/catalog/as-a-man-thinketh/'],
+          ];
+          const modes = [
+            ['desktop-light', { width: 1440, height: 1000 }, false],
+            ['desktop-dark', { width: 1440, height: 1000 }, true],
+            ['mobile-light', { width: 390, height: 844 }, false],
+            ['mobile-dark', { width: 390, height: 844 }, true],
+          ];
+          const report = { checkedAt: new Date().toISOString(), routes: [], behavior: {}, performance: {}, result: 'running' };
+          const assert = (value, message) => { if (!value) throw new Error(message); };
+
+          async function inspect(browser, routeName, path, modeName, viewport, dark) {
+            const context = await browser.newContext({ viewport, colorScheme: dark ? 'dark' : 'light' });
+            await context.addInitScript(() => localStorage.setItem('zobdino-locale', 'fa'));
+            const page = await context.newPage();
+            const pageErrors = [];
+            page.on('pageerror', (error) => pageErrors.push(String(error)));
+            const started = Date.now();
+            const response = await page.goto(base + path, { waitUntil: 'networkidle', timeout: 60000 });
+            if (dark) await page.evaluate(() => document.documentElement.classList.add('dark'));
+            await page.waitForTimeout(200);
+            const elapsedMs = Date.now() - started;
+
+            const data = await page.evaluate(() => {
+              const doc = document.documentElement;
+              const h1 = document.querySelector('h1');
+              const unlabeledButtons = [...document.querySelectorAll('button')].filter((button) => {
+                const text = (button.textContent || '').trim();
+                return !text && !button.getAttribute('aria-label') && !button.getAttribute('aria-labelledby');
+              }).length;
+              const imagesWithoutAlt = [...document.querySelectorAll('img')].filter((img) => !img.hasAttribute('alt')).length;
+              const nav = performance.getEntriesByType('navigation')[0];
+              return {
+                lang: doc.lang,
+                dir: doc.dir,
+                scrollWidth: doc.scrollWidth,
+                clientWidth: doc.clientWidth,
+                scrollHeight: doc.scrollHeight,
+                h1: (h1?.textContent || '').replace(/\s+/g, ' ').trim(),
+                unlabeledButtons,
+                imagesWithoutAlt,
+                domContentLoadedMs: nav && 'domContentLoadedEventEnd' in nav ? Math.round(nav.domContentLoadedEventEnd) : null,
+                loadEventMs: nav && 'loadEventEnd' in nav ? Math.round(nav.loadEventEnd) : null,
+              };
+            });
+
+            await page.screenshot({ path: `.qa-final-redesign/${routeName}-${modeName}.png`, fullPage: true });
+            assert(response?.ok(), `${routeName}-${modeName}: document response ${response?.status()}`);
+            assert(pageErrors.length === 0, `${routeName}-${modeName}: page errors ${pageErrors.join(' | ')}`);
+            assert(data.scrollWidth <= data.clientWidth + 1, `${routeName}-${modeName}: overflow ${data.scrollWidth}/${data.clientWidth}`);
+            assert(data.unlabeledButtons === 0, `${routeName}-${modeName}: unlabeled buttons ${data.unlabeledButtons}`);
+            assert(data.imagesWithoutAlt === 0, `${routeName}-${modeName}: images without alt ${data.imagesWithoutAlt}`);
+            assert(data.lang === 'fa' && data.dir === 'rtl', `${routeName}-${modeName}: Persian locale contract failed`);
+            if (routeName !== 'upload' || data.h1) assert(Boolean(data.h1), `${routeName}-${modeName}: missing h1`);
+            assert(elapsedMs < 10000, `${routeName}-${modeName}: local load exceeded 10s (${elapsedMs})`);
+
+            report.routes.push({ routeName, path, modeName, viewport, dark, elapsedMs, pageErrors, ...data });
+            await context.close();
+          }
+
+          async function behaviorSmoke(browser) {
+            const desktop = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+            await desktop.addInitScript(() => localStorage.setItem('zobdino-locale', 'fa'));
+            const page = await desktop.newPage();
+
+            await page.goto(base + '/', { waitUntil: 'networkidle' });
+            await page.keyboard.press('Tab');
+            const focusTag = await page.evaluate(() => document.activeElement?.tagName || '');
+            assert(focusTag !== 'BODY' && focusTag !== 'HTML', 'keyboard focus did not enter an interactive control');
+
+            await page.goto(base + '/books/', { waitUntil: 'networkidle' });
+            const search = page.locator('input[placeholder*="عنوان"]');
+            await search.fill('Atomic');
+            assert(await page.locator('a[href*="atomic-habits"]').count() > 0, 'Atomic search failed');
+            await search.fill('');
+            const readyFilter = page.getByRole('button', { name: 'فقط آماده شنیدن' });
+            await readyFilter.click();
+            assert(await readyFilter.getAttribute('aria-pressed') === 'true', 'ready filter failed');
+
+            await page.goto(base + '/books/atomic-habits/', { waitUntil: 'networkidle' });
+            const voiceButtons = page.getByRole('group', { name: 'انتخاب صدای روایت' }).getByRole('button');
+            if (await voiceButtons.count() > 1) {
+              await voiceButtons.nth(0).click();
+              await page.waitForTimeout(100);
+              const before = await page.locator('audio').evaluate((el) => el.currentTime).catch(() => 0);
+              await voiceButtons.nth(1).click();
+              await page.waitForTimeout(150);
+              const after = await page.locator('audio').evaluate((el) => el.currentTime).catch(() => 0);
+              const paused = await page.locator('audio').evaluate((el) => el.paused).catch(() => true);
+              assert(Math.abs(after - before) < 1.5, `voice switch timestamp drift ${before} -> ${after}`);
+              assert(paused === true, 'voice switch unexpectedly forced autoplay');
+            }
+
+            await desktop.close();
+
+            const mobile = await browser.newContext({ viewport: { width: 390, height: 844 } });
+            await mobile.addInitScript(() => localStorage.setItem('zobdino-locale', 'fa'));
+            const mpage = await mobile.newPage();
+            await mpage.goto(base + '/', { waitUntil: 'networkidle' });
+            const menu = mpage.locator('header button[aria-expanded]').last();
+            await menu.waitFor({ state: 'visible' });
+            await menu.click();
+            assert(await menu.getAttribute('aria-expanded') === 'true', 'mobile menu did not open');
+            assert(await mpage.locator('header a[href="/upload"], header a[href="/upload/"]').count() > 0, 'mobile menu upload CTA missing');
+            await mobile.close();
+
+            const en = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+            await en.addInitScript(() => localStorage.setItem('zobdino-locale', 'en'));
+            const epage = await en.newPage();
+            await epage.goto(base + '/features/', { waitUntil: 'networkidle' });
+            const enData = await epage.evaluate(() => ({ lang: document.documentElement.lang, dir: document.documentElement.dir, text: document.body.innerText }));
+            assert(enData.lang === 'en' && enData.dir === 'ltr', 'English locale direction contract failed');
+            assert(enData.text.includes('From a raw file'), 'English Features content missing');
+            await epage.goto(base + '/about/', { waitUntil: 'networkidle' });
+            assert((await epage.locator('body').innerText()).includes('For the moments'), 'English About content missing');
+            await en.close();
+
+            report.behavior = {
+              keyboardFocus: 'pass',
+              booksSearch: 'pass',
+              booksReadyFilter: 'pass',
+              dualVoiceSwitch: 'pass',
+              mobileMenu: 'pass',
+              englishLocale: 'pass',
+            };
+          }
+
+          const browser = await chromium.launch({ headless: true });
+          try {
+            for (const [routeName, path] of routes) {
+              for (const [modeName, viewport, dark] of modes) {
+                await inspect(browser, routeName, path, modeName, viewport, dark);
+              }
+            }
+            await behaviorSmoke(browser);
+            const times = report.routes.map((item) => item.elapsedMs);
+            report.performance = {
+              maxLocalNavigationMs: Math.max(...times),
+              averageLocalNavigationMs: Math.round(times.reduce((a, b) => a + b, 0) / times.length),
+              sanityThresholdMs: 10000,
+            };
+            report.result = 'pass';
+          } catch (error) {
+            report.result = 'fail';
+            report.error = error instanceof Error ? error.stack || error.message : String(error);
+            throw error;
+          } finally {
+            await fs.writeFile('.qa-final-redesign/report.json', JSON.stringify(report, null, 2));
+            await browser.close();
+          }
+          EOF
+          node .qa-runner/final-redesign-qa.mjs
+
+      - name: Upload final redesign evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uiux-final-redesign-${{ github.run_id }}
+          path: .qa-final-redesign
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

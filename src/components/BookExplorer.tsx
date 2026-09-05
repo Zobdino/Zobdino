@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, SlidersHorizontal } from "lucide-react";
+import { Headphones, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import BookCard from "@/components/BookCard";
@@ -25,13 +25,7 @@ export default function BookExplorer() {
     return books.filter((book) => {
       const matchesQuery =
         !normalized ||
-        [
-          book.titleFa,
-          book.titleEn,
-          book.authorFa,
-          book.authorEn,
-          book.category,
-        ]
+        [book.titleFa, book.titleEn, book.authorFa, book.authorEn, book.category]
           .join(" ")
           .toLocaleLowerCase("fa-IR")
           .includes(normalized);
@@ -44,48 +38,54 @@ export default function BookExplorer() {
     });
   }, [category, onlyReady, query]);
 
+  const readyCount = books.filter((book) =>
+    episodes.some((episode) => episode.bookSlug === book.slug && episode.audio.status === "ready"),
+  ).length;
+
   return (
-    <div>
-      <div className="mb-8 rounded-3xl border border-gray-800 bg-surface/50 p-4 md:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+    <section aria-label="جست‌وجو و مرور کتاب‌ها">
+      <div className="z-surface mb-7 p-4 md:p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <label className="relative flex-1">
             <span className="sr-only">جست‌وجوی کتاب</span>
             <Search
-              size={20}
-              className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-500"
+              size={19}
+              className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 z-muted"
             />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="جست‌وجو در عنوان، نویسنده یا موضوع..."
-              className="w-full rounded-2xl border border-gray-700 bg-background py-3.5 pr-12 pl-4 text-white outline-none transition placeholder:text-gray-600 focus:border-accent focus:ring-2 focus:ring-accent/20"
+              placeholder="عنوان، نویسنده یا موضوع را جست‌وجو کن..."
+              className="z-focus w-full rounded-2xl border border-black/10 bg-white/75 py-3.5 pr-12 pl-4 text-sm font-semibold outline-none transition placeholder:font-normal placeholder:text-zinc-400 dark:border-white/10 dark:bg-white/[0.035] dark:placeholder:text-zinc-600"
             />
           </label>
 
           <button
             type="button"
             onClick={() => setOnlyReady((value) => !value)}
-            className={`inline-flex items-center justify-center gap-2 rounded-2xl border px-5 py-3.5 font-bold transition ${
+            aria-pressed={onlyReady}
+            className={`z-focus inline-flex items-center justify-center gap-2 rounded-2xl border px-5 py-3.5 text-sm font-black transition ${
               onlyReady
-                ? "border-accent bg-accent/15 text-accent"
-                : "border-gray-700 text-gray-300 hover:border-gray-600"
+                ? "border-violet-500 bg-violet-600 text-white shadow-lg shadow-violet-500/15"
+                : "border-black/10 bg-white/65 hover:border-violet-400 dark:border-white/10 dark:bg-white/[0.035]"
             }`}
           >
-            <SlidersHorizontal size={18} />
+            <Headphones size={17} />
             فقط آماده شنیدن
           </button>
         </div>
 
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1" aria-label="فیلتر موضوع">
           {categories.map((item) => (
             <button
               key={item}
               type="button"
               onClick={() => setCategory(item)}
-              className={`whitespace-nowrap rounded-full border px-4 py-2 text-sm font-semibold transition ${
+              aria-pressed={category === item}
+              className={`z-focus whitespace-nowrap rounded-full border px-4 py-2 text-sm font-bold transition ${
                 category === item
-                  ? "border-accent bg-accent text-white"
-                  : "border-gray-700 text-gray-400 hover:border-gray-600 hover:text-white"
+                  ? "border-violet-600 bg-violet-600 text-white"
+                  : "border-black/10 bg-white/50 z-muted hover:border-violet-300 hover:text-[var(--page-fg)] dark:border-white/10 dark:bg-white/[0.025]"
               }`}
             >
               {item}
@@ -94,29 +94,23 @@ export default function BookExplorer() {
         </div>
       </div>
 
-      <div className="mb-6 flex items-center justify-between">
-        <p className="text-sm text-gray-500">
-          {filtered.length.toLocaleString("fa-IR")} کتاب
-        </p>
-        <p className="text-sm text-gray-500">
-          {episodes.filter((item) => item.audio.status === "ready").length.toLocaleString("fa-IR")} اپیزود آماده شنیدن
-        </p>
+      <div className="mb-6 flex flex-col gap-1 text-sm z-muted sm:flex-row sm:items-center sm:justify-between">
+        <p>{filtered.length.toLocaleString("fa-IR")} عنوان مطابق انتخاب تو</p>
+        <p>{readyCount.toLocaleString("fa-IR")} کتاب با نسخه صوتی آماده</p>
       </div>
 
       {filtered.length > 0 ? (
-        <div className="grid grid-cols-1 gap-7 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((book) => (
             <BookCard key={book.slug} book={book} />
           ))}
         </div>
       ) : (
-        <div className="rounded-3xl border border-dashed border-gray-700 py-20 text-center">
-          <p className="text-xl font-bold">کتابی پیدا نشد</p>
-          <p className="mt-2 text-gray-500">
-            عبارت جست‌وجو یا فیلتر موضوع را تغییر دهید.
-          </p>
+        <div className="z-surface border-dashed py-16 text-center md:py-20">
+          <p className="text-xl font-black">نتیجه‌ای پیدا نشد</p>
+          <p className="mt-2 text-sm z-muted">عبارت جست‌وجو یا فیلتر موضوع را تغییر بده.</p>
         </div>
       )}
-    </div>
+    </section>
   );
 }

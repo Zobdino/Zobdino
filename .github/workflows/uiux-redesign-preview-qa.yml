@@ -1,0 +1,148 @@
+name: UIUX Redesign Preview QA
+
+on:
+  push:
+    branches:
+      - design/253-foundation-home-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  visual-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build static product
+        run: npm run build
+
+      - name: Install Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Serve branch build
+        shell: bash
+        run: |
+          python3 -m http.server 4173 --directory out > /tmp/zobdino-uiux-server.log 2>&1 &
+          echo $! > /tmp/zobdino-uiux-server.pid
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/zobdino-uiux-server.log
+          exit 1
+
+      - name: Chromium visual and structural acceptance
+        shell: bash
+        run: |
+          mkdir -p .qa-uiux .qa-runner
+          cat > .qa-runner/uiux-preview-qa.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs/promises';
+
+          const base = 'http://127.0.0.1:4173';
+          const report = { checkedAt: new Date().toISOString(), cases: [], result: 'running' };
+          const assert = (value, message) => { if (!value) throw new Error(message); };
+          const normalizePath = (value) => {
+            if (!value) return null;
+            try {
+              const path = new URL(value, base).pathname;
+              return path.length > 1 ? path.replace(/\/+$/, '') : path;
+            } catch {
+              return value;
+            }
+          };
+
+          async function inspect(browser, name, viewport, dark = false) {
+            const context = await browser.newContext({ viewport, colorScheme: dark ? 'dark' : 'light' });
+            const page = await context.newPage();
+            await page.goto(base + '/', { waitUntil: 'networkidle', timeout: 60000 });
+            if (dark) await page.evaluate(() => document.documentElement.classList.add('dark'));
+            await page.waitForTimeout(300);
+
+            const data = await page.evaluate(() => {
+              const doc = document.documentElement;
+              const body = document.body;
+              const primary = [...document.querySelectorAll('a')].find((a) => {
+                const href = a.getAttribute('href') || '';
+                try {
+                  const path = new URL(href, location.href).pathname.replace(/\/+$/, '');
+                  return path === '/upload';
+                } catch {
+                  return href === '/upload' || href === '/upload/';
+                }
+              });
+              const h1 = document.querySelector('h1');
+              const unlabeledButtons = [...document.querySelectorAll('button')].filter((button) => {
+                const text = (button.textContent || '').trim();
+                return !text && !button.getAttribute('aria-label') && !button.getAttribute('aria-labelledby');
+              }).length;
+              const imagesWithoutAlt = [...document.querySelectorAll('img')].filter((img) => !img.hasAttribute('alt')).length;
+              return {
+                title: document.title,
+                scrollWidth: doc.scrollWidth,
+                clientWidth: doc.clientWidth,
+                scrollHeight: doc.scrollHeight,
+                bodyHeight: body.getBoundingClientRect().height,
+                primaryHref: primary?.getAttribute('href') || null,
+                h1: (h1?.textContent || '').replace(/\s+/g, ' ').trim(),
+                unlabeledButtons,
+                imagesWithoutAlt,
+              };
+            });
+
+            await page.screenshot({ path: `.qa-uiux/${name}.png`, fullPage: true });
+            report.cases.push({ name, viewport, dark, ...data, primaryPath: normalizePath(data.primaryHref) });
+
+            assert(data.scrollWidth <= data.clientWidth + 1, `${name}: horizontal overflow ${data.scrollWidth}/${data.clientWidth}`);
+            assert(normalizePath(data.primaryHref) === '/upload', `${name}: primary upload CTA missing (${data.primaryHref})`);
+            assert(data.h1.includes('زبدینو'), `${name}: user-outcome hero h1 missing`);
+            assert(data.unlabeledButtons === 0, `${name}: unlabeled buttons ${data.unlabeledButtons}`);
+            assert(data.imagesWithoutAlt === 0, `${name}: images without alt ${data.imagesWithoutAlt}`);
+
+            await context.close();
+          }
+
+          const browser = await chromium.launch({ headless: true });
+          try {
+            await inspect(browser, 'desktop-home-light', { width: 1440, height: 1000 }, false);
+            await inspect(browser, 'desktop-home-dark', { width: 1440, height: 1000 }, true);
+            await inspect(browser, 'mobile-home-light', { width: 390, height: 844 }, false);
+            await inspect(browser, 'mobile-home-dark', { width: 390, height: 844 }, true);
+            report.result = 'pass';
+          } catch (error) {
+            report.result = 'fail';
+            report.error = error instanceof Error ? error.stack || error.message : String(error);
+            throw error;
+          } finally {
+            await fs.writeFile('.qa-uiux/report.json', JSON.stringify(report, null, 2));
+            await browser.close();
+          }
+          EOF
+          node .qa-runner/uiux-preview-qa.mjs
+
+      - name: Upload redesigned visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uiux-redesign-preview-${{ github.run_id }}
+          path: .qa-uiux
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

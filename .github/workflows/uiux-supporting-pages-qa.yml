@@ -1,0 +1,150 @@
+name: UIUX Supporting Pages QA
+
+on:
+  push:
+    branches:
+      - design/253-supporting-pages-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Quality and runtime gates
+        run: |
+          npm run lint
+          npm run typecheck
+          npm run check:text
+          npm run runtime:user-files:validate
+          npm run build
+
+      - name: Install Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Serve branch build
+        shell: bash
+        run: |
+          python3 -m http.server 4173 --directory out > /tmp/zobdino-supporting-server.log 2>&1 &
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/zobdino-supporting-server.log
+          exit 1
+
+      - name: Chromium visual locale and private-library acceptance
+        shell: bash
+        run: |
+          mkdir -p .qa-supporting .qa-runner
+          cat > .qa-runner/supporting-qa.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs/promises';
+
+          const base = 'http://127.0.0.1:4173';
+          const report = { checkedAt: new Date().toISOString(), cases: [], locale: {}, privateLibrary: {}, result: 'running' };
+          const assert = (value, message) => { if (!value) throw new Error(message); };
+
+          async function inspect(browser, name, path, viewport, dark, locale = 'fa') {
+            const context = await browser.newContext({ viewport, colorScheme: dark ? 'dark' : 'light' });
+            await context.addInitScript((value) => localStorage.setItem('zobdino-locale', value), locale);
+            const page = await context.newPage();
+            await page.goto(base + path, { waitUntil: 'networkidle', timeout: 60000 });
+            if (dark) await page.evaluate(() => document.documentElement.classList.add('dark'));
+            await page.waitForTimeout(250);
+
+            const data = await page.evaluate(() => {
+              const doc = document.documentElement;
+              const h1 = document.querySelector('h1');
+              const unlabeledButtons = [...document.querySelectorAll('button')].filter((button) => {
+                const text = (button.textContent || '').trim();
+                return !text && !button.getAttribute('aria-label') && !button.getAttribute('aria-labelledby');
+              }).length;
+              const imagesWithoutAlt = [...document.querySelectorAll('img')].filter((img) => !img.hasAttribute('alt')).length;
+              return {
+                lang: doc.lang,
+                dir: doc.dir,
+                scrollWidth: doc.scrollWidth,
+                clientWidth: doc.clientWidth,
+                h1: (h1?.textContent || '').replace(/\s+/g, ' ').trim(),
+                unlabeledButtons,
+                imagesWithoutAlt,
+                bodyText: document.body.innerText.slice(0, 4000),
+              };
+            });
+
+            await page.screenshot({ path: `.qa-supporting/${name}.png`, fullPage: true });
+            assert(data.scrollWidth <= data.clientWidth + 1, `${name}: overflow ${data.scrollWidth}/${data.clientWidth}`);
+            assert(Boolean(data.h1), `${name}: missing h1`);
+            assert(data.unlabeledButtons === 0, `${name}: unlabeled buttons ${data.unlabeledButtons}`);
+            assert(data.imagesWithoutAlt === 0, `${name}: images without alt ${data.imagesWithoutAlt}`);
+            assert(data.lang === locale, `${name}: lang mismatch ${data.lang}/${locale}`);
+            assert(data.dir === (locale === 'fa' ? 'rtl' : 'ltr'), `${name}: dir mismatch ${data.dir}`);
+            report.cases.push({ name, path, viewport, dark, locale, ...data, bodyText: undefined });
+            await context.close();
+            return data;
+          }
+
+          const browser = await chromium.launch({ headless: true });
+          try {
+            const viewports = [
+              ['desktop', { width: 1440, height: 1000 }],
+              ['mobile', { width: 390, height: 844 }],
+            ];
+
+            for (const [size, viewport] of viewports) {
+              for (const dark of [false, true]) {
+                await inspect(browser, `features-${size}-${dark ? 'dark' : 'light'}-fa`, '/features/', viewport, dark, 'fa');
+                await inspect(browser, `about-${size}-${dark ? 'dark' : 'light'}-fa`, '/about/', viewport, dark, 'fa');
+                await inspect(browser, `upload-${size}-${dark ? 'dark' : 'light'}-fa`, '/upload/', viewport, dark, 'fa');
+              }
+            }
+
+            const featuresEn = await inspect(browser, 'features-desktop-light-en', '/features/', { width: 1440, height: 1000 }, false, 'en');
+            const aboutEn = await inspect(browser, 'about-desktop-light-en', '/about/', { width: 1440, height: 1000 }, false, 'en');
+            assert(featuresEn.bodyText.includes('From a raw file'), 'features English copy missing');
+            assert(aboutEn.bodyText.includes('For the moments'), 'about English copy missing');
+            report.locale = { featuresEnglish: 'pass', aboutEnglish: 'pass', rtlLtr: 'pass' };
+
+            const uploadFa = await inspect(browser, 'upload-private-library-empty', '/upload/', { width: 1440, height: 1000 }, false, 'fa');
+            assert(uploadFa.bodyText.includes('کتابخانه‌ات هنوز خالی است'), 'private library empty state missing');
+            report.privateLibrary = { emptyState: 'pass', runtimeContract: 'validated-before-browser' };
+
+            report.result = 'pass';
+          } catch (error) {
+            report.result = 'fail';
+            report.error = error instanceof Error ? error.stack || error.message : String(error);
+            throw error;
+          } finally {
+            await fs.writeFile('.qa-supporting/report.json', JSON.stringify(report, null, 2));
+            await browser.close();
+          }
+          EOF
+          node .qa-runner/supporting-qa.mjs
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uiux-supporting-pages-${{ github.run_id }}
+          path: .qa-supporting
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

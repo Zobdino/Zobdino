@@ -28,82 +28,63 @@ export default function BookCard({ book }: BookCardProps) {
   return (
     <Link
       href={`/books/${book.slug}`}
-      className="group block rounded-3xl border border-gray-800 bg-surface/55 p-4 transition duration-300 hover:-translate-y-1 hover:border-accent/60 hover:shadow-2xl hover:shadow-accent/10 focus:outline-none focus:ring-2 focus:ring-accent"
+      className="z-focus group block overflow-hidden rounded-[1.7rem] border border-black/8 bg-white/68 p-3.5 shadow-[0_18px_50px_-35px_rgba(76,29,149,.35)] transition duration-300 hover:-translate-y-1 hover:border-violet-300 hover:shadow-[0_24px_65px_-35px_rgba(76,29,149,.42)] dark:border-white/8 dark:bg-white/[0.025] dark:hover:border-violet-500/40"
     >
-      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl bg-gray-900">
+      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-[1.3rem] bg-zinc-900">
         <Image
           src={book.coverUrl}
           alt={`جلد ${book.titleFa}`}
           fill
           unoptimized
           sizes="(max-width: 768px) 100vw, 25vw"
-          className="object-cover transition duration-500 group-hover:scale-[1.03] group-hover:opacity-90"
+          className="object-cover transition duration-500 group-hover:scale-[1.025]"
         />
 
-        <div className="absolute inset-x-3 top-3 flex items-center justify-between gap-2">
-          <span className="rounded-full border border-white/10 bg-black/70 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">
+        <div className="absolute inset-x-3 top-3 flex items-start justify-between gap-2">
+          <span className="rounded-full border border-white/12 bg-black/72 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">
             {book.category}
           </span>
 
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold backdrop-blur ${
-              productionAudio
-                ? "border-emerald-400/30 bg-emerald-950/80 text-emerald-200"
-                : ready
-                  ? "border-amber-400/30 bg-amber-950/80 text-amber-200"
-                  : "border-zinc-500/30 bg-zinc-950/80 text-zinc-300"
-            }`}
-          >
+          <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold backdrop-blur ${
+            ready
+              ? "border-emerald-300/30 bg-emerald-950/80 text-emerald-100"
+              : "border-white/12 bg-black/72 text-zinc-200"
+          }`}>
             {ready ? <Headphones size={13} /> : <LoaderCircle size={13} />}
-            {productionAudio
-              ? "صدای نهایی تأییدشده"
-              : ready
-                ? "صوت قدیمی؛ در انتظار جایگزینی"
-                : "در حال تولید"}
+            {ready ? "آماده شنیدن" : "صوت در حال آماده‌سازی"}
           </span>
         </div>
 
-        {ready && (
-          <div className="absolute bottom-3 left-3 flex h-12 w-12 items-center justify-center rounded-full bg-accent text-white shadow-xl shadow-accent/30">
-            <Play size={21} fill="currentColor" />
-          </div>
-        )}
+        {ready ? (
+          <span className="absolute bottom-3 left-3 grid size-12 place-items-center rounded-full bg-white text-violet-700 shadow-xl transition group-hover:scale-105" aria-hidden="true">
+            <Play size={20} fill="currentColor" />
+          </span>
+        ) : null}
       </div>
 
-      <div className="px-1 pt-5">
-        <p className="mb-1 text-xs font-semibold tracking-wide text-accent">
-          {book.titleEn}
-        </p>
-        <h3 className="text-xl font-extrabold text-white transition group-hover:text-accent">
-          {book.titleFa}
-        </h3>
-        <p className="mt-2 text-sm text-gray-400">{book.authorFa}</p>
+      <div className="px-1 pb-1 pt-4">
+        <p className="text-xs font-bold tracking-wide text-violet-700 dark:text-violet-300">{book.titleEn}</p>
+        <h3 className="mt-1 text-xl font-black transition group-hover:text-violet-700 dark:group-hover:text-violet-300">{book.titleFa}</h3>
+        <p className="mt-2 text-sm z-muted">{book.authorFa}</p>
 
         {ready && voiceLabel ? (
-          <div className="mt-3 rounded-xl border border-gray-800 bg-black/20 px-3 py-2">
-            <p className="text-[11px] font-bold text-gray-500">صدای فعلی</p>
-            <p
-              className={`mt-1 text-xs font-bold ${
-                productionAudio ? "text-emerald-300" : "text-amber-300"
-              }`}
-            >
-              {voiceLabel}
-            </p>
-          </div>
+          <p className="mt-3 text-xs z-muted">
+            روایت {productionAudio ? "تأییدشده" : "در دسترس"}: <span className="font-black text-[var(--page-fg)]">{voiceLabel}</span>
+          </p>
         ) : null}
 
-        <div className="mt-5 flex items-center justify-between border-t border-gray-800 pt-4 text-sm">
+        <div className="mt-4 flex items-center justify-between gap-3 border-t border-black/7 pt-4 text-sm dark:border-white/8">
           {durationLabel ? (
-            <span className="flex items-center gap-1.5 text-gray-500">
+            <span className="inline-flex items-center gap-1.5 z-muted">
               <Clock3 size={15} />
               {durationLabel}
             </span>
           ) : (
-            <span className="text-amber-300/80">اپیزود در خط تولید AI</span>
+            <span className="z-muted">خلاصه فارسی در دسترس</span>
           )}
 
-          <span className="font-bold text-accent">
-            {ready ? "گوش دادن ←" : "مشاهده کتاب ←"}
+          <span className="font-black text-violet-700 dark:text-violet-300">
+            {ready ? "شروع شنیدن ←" : "دیدن کتاب ←"}
           </span>
         </div>
       </div>

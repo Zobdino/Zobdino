@@ -1,150 +1,119 @@
+"use client";
+
 import Link from "next/link";
 import {
-  AudioLines,
-  Bot,
-  BookOpen,
-  ShieldCheck,
+  ArrowLeft,
+  ArrowRight,
+  BookOpenCheck,
+  Headphones,
+  LockKeyhole,
   Sparkles,
 } from "lucide-react";
 
-const pipeline = [
-  {
-    title: "منابع قانونی و معتبر",
-    text: "اطلاعات کتاب از منابع رسمی، صفحات نویسنده و metadata عمومی جمع‌آوری و به یک Source Pack قابل ممیزی تبدیل می‌شود.",
-    icon: BookOpen,
-  },
-  {
-    title: "تحقیق و اسکریپت با AI",
-    text: "مدل هوش مصنوعی ایده‌های اصلی را استخراج می‌کند و یک روایت مستقل، کاربردی و فارسی برای اپیزود می‌سازد.",
-    icon: Bot,
-  },
-  {
-    title: "تولید و مسترینگ صوت",
-    text: "اسکریپت با TTS فارسی تولید، با FFmpeg مستر و برای تجربه‌ی شنیداری موبایل آماده می‌شود.",
-    icon: AudioLines,
-  },
-  {
-    title: "QA و انتشار قابل اثبات",
-    text: "ASR، کنترل‌های ساختاری، SHA-256 و دانلود مجدد asset بررسی می‌شوند؛ سپس فایل تأییدشده منتشر می‌شود.",
-    icon: ShieldCheck,
-  },
-];
+import { useLocale } from "@/components/LocaleProvider";
 
 export default function AboutPage() {
+  const { locale } = useLocale();
+  const fa = locale === "fa";
+  const Arrow = fa ? ArrowLeft : ArrowRight;
+
+  const copy = fa
+    ? {
+        eyebrow: "درباره زبدینو",
+        title: "برای زمانی که می‌خواهی یک متن را واقعاً بفهمی، نه فقط از روی آن رد شوی.",
+        intro:
+          "زبدینو یک تجربه فارسی‌محور برای تبدیل کتاب و سند به خلاصه ساختاریافته، Evidence قابل بررسی و صوت است؛ با مسیری که از فایل شخصی تا کتابخانه خصوصی به هم متصل می‌ماند.",
+        missionTitle: "هدف ما",
+        missionText:
+          "کم‌کردن فاصله بین داشتن یک منبع و فهمیدن آن. کاربر باید بتواند سریع‌تر ایده‌های اصلی را پیدا کند، منبع را بررسی کند و در زمانی که خواندن ممکن نیست، همان محتوا را گوش بدهد.",
+        trustTitle: "اعتماد بخشی از محصول است",
+        trustText:
+          "خروجی فقط به‌خاطر اینکه توسط هوش مصنوعی ساخته شده قابل اعتماد فرض نمی‌شود. زبدینو Evidence، provenance، وضعیت پردازش و فایل‌های تأییدشده را در تجربه نگه می‌دارد تا نتیجه قابل بررسی باشد.",
+        privateTitle: "فایل شخصی، خصوصی می‌ماند",
+        privateText:
+          "فایل‌های شخصی در کتابخانه خصوصی همان تجربه نگه داشته می‌شوند و با مجموعه عمومی قاطی نمی‌شوند. کاربر می‌تواند مسیر پردازش را دوباره باز کند و خروجی تأییدشده را ادامه دهد.",
+        audioTitle: "شنیدن، یک قابلیت جانبی نیست",
+        audioText:
+          "صوت یکی از خروجی‌های اصلی زبدینو است. برای کتاب‌های آماده، کاربر می‌تواند بین دو صدای رسمی فارسی جابه‌جا شود و بدون از دست دادن موقعیت شنیدن ادامه دهد.",
+        cta: "یک فایل را امتحان کن",
+        secondary: "دیدن امکانات",
+      }
+    : {
+        eyebrow: "About Zobdino",
+        title: "For the moments when you want to understand a text, not just move past it.",
+        intro:
+          "Zobdino is a Persian-first experience for turning books and documents into structured summaries, verifiable evidence and audio, with one connected journey from a personal file to a private library.",
+        missionTitle: "Our purpose",
+        missionText:
+          "Reduce the distance between having a source and understanding it. Users should be able to find the key ideas faster, inspect the source, and listen when reading is not practical.",
+        trustTitle: "Trust is part of the product",
+        trustText:
+          "An output is not treated as trustworthy simply because AI generated it. Zobdino keeps evidence, provenance, processing state and verified assets in the experience so results can be inspected.",
+        privateTitle: "Personal files stay private",
+        privateText:
+          "Personal files remain inside the private-library experience and are kept separate from the public catalog. Users can reopen processing and continue from verified outputs.",
+        audioTitle: "Listening is a first-class outcome",
+        audioText:
+          "Audio is a core Zobdino output. On supported books, users can switch between two approved Persian voices and keep their listening position while changing narration.",
+        cta: "Try a file",
+        secondary: "Explore features",
+      };
+
+  const pillars = [
+    [Sparkles, copy.missionTitle, copy.missionText],
+    [BookOpenCheck, copy.trustTitle, copy.trustText],
+    [LockKeyhole, copy.privateTitle, copy.privateText],
+    [Headphones, copy.audioTitle, copy.audioText],
+  ];
+
   return (
-    <div className="max-w-5xl mx-auto px-4 py-14 md:py-20">
-      <section className="max-w-3xl">
-        <div className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-4 py-2 text-sm font-semibold text-accent mb-6">
-          <Sparkles size={16} />
-          Zobdino · AI-powered book summaries
+    <main className="z-container py-10 md:py-16">
+      <section className="max-w-4xl">
+        <span className="z-eyebrow">{copy.eyebrow}</span>
+        <h1 className="mt-4 text-4xl font-black leading-tight tracking-tight md:text-6xl">{copy.title}</h1>
+        <p className="mt-6 max-w-3xl text-lg leading-9 z-muted">{copy.intro}</p>
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link href="/upload" className="z-focus inline-flex items-center gap-2 rounded-2xl bg-violet-700 px-5 py-3.5 text-sm font-black text-white shadow-lg shadow-violet-500/15 transition hover:bg-violet-800">
+            {copy.cta}
+            <Arrow size={16} />
+          </Link>
+          <Link href="/features" className="z-focus inline-flex items-center rounded-2xl border border-black/10 bg-white/65 px-5 py-3.5 text-sm font-black dark:border-white/10 dark:bg-white/[0.035]">
+            {copy.secondary}
+          </Link>
         </div>
-
-        <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight mb-7">
-          درباره <span className="text-accent">زبدینو</span>
-        </h1>
-
-        <p className="text-xl text-gray-300 leading-9 mb-5">
-          زبدینو یک محصول فارسی‌زبان و متن‌باز برای تبدیل ایده‌های اصلی
-          کتاب‌های غیرداستانی به خلاصه‌های شنیداری کوتاه، منسجم و کاربردی
-          است.
-        </p>
-
-        <p className="text-lg text-gray-400 leading-8">
-          هدف ساده است: اگر برای خواندن کامل یک کتاب وقت ندارید، زبدینو
-          باید در حدود ۱۰ تا ۱۸ دقیقه تصویری دقیق از ایده‌های کلیدی آن به
-          شما بدهد؛ نه به‌عنوان جایگزین کتاب، بلکه برای کشف، مرور و یادگیری
-          سریع.
-        </p>
       </section>
 
-      <section className="mt-16">
-        <h2 className="text-3xl font-bold mb-3">از کتاب تا اپیزود</h2>
-        <p className="text-gray-400 mb-8 max-w-3xl leading-8">
-          هسته‌ی زبدینو یک خط تولید AI و Automation است. هر مرحله evidence
-          تولید می‌کند تا بدانیم محتوا از کجا آمده، چگونه ساخته شده و چه
-          فایلی در نهایت منتشر شده است.
-        </p>
-
-        <div className="grid md:grid-cols-2 gap-5">
-          {pipeline.map(({ title, text, icon: Icon }) => (
-            <article
-              key={title}
-              className="rounded-2xl border border-gray-800 bg-surface/60 p-6"
-            >
-              <div className="w-11 h-11 rounded-xl bg-accent/10 text-accent flex items-center justify-center mb-5">
-                <Icon size={22} />
-              </div>
-              <h3 className="text-xl font-bold mb-3">{title}</h3>
-              <p className="text-gray-400 leading-7">{text}</p>
+      <section className="mt-14 grid gap-5 md:grid-cols-2">
+        {pillars.map(([Icon, title, text]) => {
+          const PillarIcon = Icon as typeof Sparkles;
+          return (
+            <article key={String(title)} className="z-surface p-6 md:p-7">
+              <span className="grid size-11 place-items-center rounded-2xl bg-violet-500/10 text-violet-700 dark:text-violet-300">
+                <PillarIcon size={20} />
+              </span>
+              <h2 className="mt-5 text-2xl font-black">{String(title)}</h2>
+              <p className="mt-3 text-sm leading-8 z-muted md:text-base">{String(text)}</p>
             </article>
-          ))}
-        </div>
+          );
+        })}
       </section>
 
-      <section className="mt-16 rounded-3xl border border-gray-800 bg-gradient-to-b from-surface to-background p-7 md:p-10">
-        <h2 className="text-3xl font-bold mb-5">AI-first، اما قابل اعتماد</h2>
-        <div className="space-y-4 text-gray-300 leading-8">
-          <p>
-            زبدینو برای تولید سریع‌تر از هوش مصنوعی استفاده می‌کند، اما
-            خروجی AI به‌تنهایی معیار انتشار نیست. ساختار محتوا، منابع،
-            کیفیت صوت و integrity فایل‌ها قبل از promotion بررسی می‌شوند.
-          </p>
-          <p>
-            برای کتاب‌های دارای کپی‌رایت، محصول متن کامل را بازنشر یا
-            فصل‌به‌فصل ترجمه نمی‌کند؛ خروجی یک خلاصه و روایت مستقل از
-            ایده‌های اصلی است.
-          </p>
-          <p>
-            در مرحله‌ی فعلی beta، تغییر صدای production یک Human Listening
-            Gate هم دارد تا تلفظ، لحن و تجربه‌ی شنیداری فارسی قبل از
-            جایگزینی فایل زنده بررسی شود.
-          </p>
-        </div>
-      </section>
-
-      <section className="mt-16 grid md:grid-cols-3 gap-5">
-        <div className="rounded-2xl border border-gray-800 p-6">
-          <div className="text-4xl font-extrabold text-accent mb-2">2</div>
-          <div className="font-semibold">اپیزود واقعی منتشرشده</div>
-          <div className="text-sm text-gray-500 mt-2">
-            Atomic Habits و Deep Work
+      <section className="z-surface mt-14 p-7 md:p-9">
+        <div className="grid gap-6 md:grid-cols-[1fr_auto] md:items-center">
+          <div className="max-w-2xl">
+            <p className="text-sm font-black text-violet-700 dark:text-violet-300">Zobdino</p>
+            <p className="mt-3 text-lg font-black leading-8">
+              {fa
+                ? "یک مسیر واحد برای خواندن، بررسی منبع، شنیدن و بازگشت دوباره به چیزی که برایت مهم است."
+                : "One connected path for reading, checking the source, listening, and returning to what matters."}
+            </p>
           </div>
-        </div>
-        <div className="rounded-2xl border border-gray-800 p-6">
-          <div className="text-4xl font-extrabold text-accent mb-2">5</div>
-          <div className="font-semibold">هدف MVP</div>
-          <div className="text-sm text-gray-500 mt-2">
-            پنج خلاصه‌ی صوتی واقعی
-          </div>
-        </div>
-        <div className="rounded-2xl border border-gray-800 p-6">
-          <div className="text-4xl font-extrabold text-accent mb-2">100%</div>
-          <div className="font-semibold">هسته Open Source</div>
-          <div className="text-sm text-gray-500 mt-2">
-            کد، معماری و lifecycle روی GitHub
-          </div>
+          <Link href="/books" className="z-focus inline-flex items-center gap-2 rounded-2xl bg-[var(--page-fg)] px-5 py-3.5 text-sm font-black text-[var(--page-bg)]">
+            {fa ? "مرور کتاب‌ها" : "Browse books"}
+            <Arrow size={16} />
+          </Link>
         </div>
       </section>
-
-      <section className="mt-16 border-t border-gray-800 pt-10">
-        <h2 className="text-2xl font-bold mb-4">از کتاب‌کست تا زبدینو</h2>
-        <p className="text-gray-400 leading-8 max-w-3xl mb-7">
-          نسخه‌های اولیه‌ی پروژه با نام «کتاب‌کست» ساخته شدند. از
-          v0.2.0-beta.2 برند رسمی محصول «زبدینو / Zobdino» است. برای حفظ
-          صحت evidence، releaseهای تاریخی و transcript فایل‌های صوتی قبلی
-          بازنویسی نمی‌شوند.
-        </p>
-
-        <Link
-          href="https://github.com/Zobdino/Zobdino"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-2 rounded-full bg-gray-100 text-gray-950 px-6 py-3 font-bold hover:bg-white transition"
-        >
-          مشاهده پروژه در GitHub
-          <span aria-hidden="true">↗</span>
-        </Link>
-      </section>
-    </div>
+    </main>
   );
 }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ArrowLeft, Headphones, LoaderCircle } from "lucide-react";
 import type { PreviewBook } from "@/lib/catalog";
 
 type Props = {
@@ -7,39 +8,41 @@ type Props = {
 
 const mediaLabels = {
   ready: "آماده شنیدن",
-  processing: "در حال تولید صوت",
-  unavailable: "فعلاً بدون صوت",
+  processing: "نسخه صوتی در حال آماده‌سازی",
+  unavailable: "فعلاً بدون نسخه صوتی",
 };
 
 export function BookCard({ book }: Props) {
+  const ready = book.mediaStatus === "ready";
+
   return (
-    <article className="group rounded-3xl border border-gray-800 bg-surface/50 p-6 transition hover:-translate-y-1 hover:border-accent/60">
+    <article className="z-surface group p-5 transition duration-300 hover:-translate-y-1 hover:border-violet-300 dark:hover:border-violet-500/40 md:p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-bold text-accent">پیش‌نمایش زبدینو</p>
-          <h2 className="mt-2 text-2xl font-extrabold">{book.title}</h2>
-          <p className="mt-1 text-sm text-gray-500">{book.author}</p>
+          <p className="text-xs font-black text-violet-700 dark:text-violet-300">نمونه عمومی</p>
+          <h2 className="mt-2 text-2xl font-black">{book.title}</h2>
+          <p className="mt-1 text-sm z-muted">{book.author}</p>
         </div>
 
-        <span className="rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-300">
+        <span className="rounded-full border border-black/10 bg-white/60 px-3 py-1 text-xs font-bold z-muted dark:border-white/10 dark:bg-white/[0.035]">
           {book.language}
         </span>
       </div>
 
-      <p className="mt-5 line-clamp-3 text-sm leading-7 text-gray-400">
-        {book.summaryPreview}
-      </p>
+      <p className="mt-5 line-clamp-3 text-sm leading-7 z-muted">{book.summaryPreview}</p>
 
-      <div className="mt-6 flex items-center justify-between gap-4">
-        <span className="text-xs text-gray-500">
-          {mediaLabels[book.mediaStatus]}
-        </span>
+      <div className="mt-5 inline-flex items-center gap-2 rounded-full bg-black/[0.035] px-3 py-2 text-xs font-bold z-muted dark:bg-white/[0.045]">
+        {ready ? <Headphones size={14} /> : <LoaderCircle size={14} />}
+        {mediaLabels[book.mediaStatus]}
+      </div>
 
+      <div className="mt-6 border-t border-black/7 pt-4 dark:border-white/8">
         <Link
           href={`/catalog/${book.id}`}
-          className="text-sm font-bold text-accent hover:underline"
+          className="z-focus inline-flex items-center gap-2 rounded-xl text-sm font-black text-violet-700 dark:text-violet-300"
         >
-          مشاهده کتاب ←
+          دیدن نمونه
+          <ArrowLeft size={15} />
         </Link>
       </div>
     </article>

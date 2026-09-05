@@ -1,5 +1,6 @@
 "use client";
 
+import { Headphones, Mic2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import AudioPlayer from "@/components/AudioPlayer";
@@ -47,49 +48,62 @@ export default function BookAudioExperience({
     <>
       <section
         id="player"
-        className="mb-12 rounded-3xl border border-gray-800 bg-surface/50 p-5 md:p-8"
+        className="mb-8 overflow-hidden rounded-[2rem] border border-black/7 bg-white/80 shadow-sm dark:border-white/8 dark:bg-white/[0.03]"
       >
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-sm font-bold text-accent">اپیزود زبدینو</p>
-            <h2 className="mt-2 text-2xl font-extrabold">{selected.title}</h2>
-          </div>
-
-          {canonicalEpisodes.length > 1 ? (
-            <div
-              className="grid grid-cols-2 gap-2 rounded-2xl border border-gray-800 bg-background/60 p-1.5"
-              role="group"
-              aria-label="انتخاب صدای روایت"
-            >
-              {canonicalEpisodes.map((episode) => {
-                const active = episode.id === selected.id;
-                return (
-                  <button
-                    key={episode.id}
-                    type="button"
-                    onClick={() => switchVoice(episode)}
-                    aria-pressed={active}
-                    className={`rounded-xl px-4 py-2.5 text-sm font-bold transition ${
-                      active
-                        ? "bg-accent text-white shadow-lg shadow-accent/20"
-                        : "text-gray-400 hover:bg-surface hover:text-[var(--page-fg)]"
-                    }`}
-                  >
-                    {getEpisodeVoiceLabelFa(episode.audio)}
-                  </button>
-                );
-              })}
+        <div className="border-b border-black/7 p-5 dark:border-white/8 md:p-7">
+          <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+            <div>
+              <div className="inline-flex items-center gap-2 text-sm font-black text-violet-700 dark:text-violet-300">
+                <Headphones size={17} />
+                شنیدن کتاب
+              </div>
+              <h2 className="mt-2 text-2xl font-black md:text-3xl">{selected.title}</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-7 z-muted">
+                صدا را انتخاب کن، از همان نقطه ادامه بده و بدون خروج از صفحه بین روایت‌ها جابه‌جا شو.
+              </p>
             </div>
-          ) : null}
+
+            {canonicalEpisodes.length > 1 ? (
+              <div
+                className="grid grid-cols-2 gap-2 rounded-2xl border border-black/8 bg-black/[0.025] p-1.5 dark:border-white/10 dark:bg-white/[0.035]"
+                role="group"
+                aria-label="انتخاب صدای روایت"
+              >
+                {canonicalEpisodes.map((episode) => {
+                  const active = episode.id === selected.id;
+                  return (
+                    <button
+                      key={episode.id}
+                      type="button"
+                      onClick={() => switchVoice(episode)}
+                      aria-pressed={active}
+                      className={`z-focus inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black transition ${
+                        active
+                          ? "bg-violet-700 text-white shadow-md shadow-violet-700/15"
+                          : "z-muted hover:bg-white dark:hover:bg-white/[0.06]"
+                      }`}
+                    >
+                      <Mic2 size={15} />
+                      {getEpisodeVoiceLabelFa(episode.audio)}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
         </div>
 
-        <AudioPlayer episode={selected} />
-        <p className="mt-6 text-lg leading-8 text-gray-400">
-          {selected.description}
-        </p>
+        <div className="p-5 md:p-7">
+          <AudioPlayer episode={selected} />
+          <p className="mt-5 text-sm leading-7 z-muted md:text-base md:leading-8">
+            {selected.description}
+          </p>
+        </div>
       </section>
 
-      <TranscriptPanel episode={selected} />
+      <div className="mb-10">
+        <TranscriptPanel episode={selected} />
+      </div>
     </>
   );
 }
