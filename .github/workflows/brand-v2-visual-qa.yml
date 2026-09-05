@@ -1,0 +1,123 @@
+name: Brand V2 Visual QA
+
+on:
+  push:
+    branches:
+      - design/262-approved-concept2-brand-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Quality and build
+        run: |
+          npm run lint
+          npm run typecheck
+          npm run check:text
+          npm run check:episodes
+          npm run pipeline:voice:validate
+          npm run voice:dual:resume:validate
+          npm run build
+      - name: Install Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Serve branch build
+        shell: bash
+        run: |
+          python3 -m http.server 4173 --directory out > /tmp/zobdino-brand-v2.log 2>&1 &
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/zobdino-brand-v2.log
+          exit 1
+      - name: Chromium brand acceptance
+        shell: bash
+        run: |
+          mkdir -p .qa-brand-v2 .qa-runner
+          cat > .qa-runner/brand-v2.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs/promises';
+          const base='http://127.0.0.1:4173';
+          const report={checkedAt:new Date().toISOString(),cases:[],behavior:{},result:'running'};
+          const assert=(v,m)=>{if(!v) throw new Error(m)};
+          async function inspect(browser,name,path,viewport,dark){
+            const context=await browser.newContext({viewport,colorScheme:dark?'dark':'light'});
+            await context.addInitScript(()=>localStorage.setItem('zobdino-locale','fa'));
+            const page=await context.newPage();
+            const response=await page.goto(base+path,{waitUntil:'networkidle',timeout:60000});
+            if(dark) await page.evaluate(()=>document.documentElement.classList.add('dark'));
+            const data=await page.evaluate(()=>({
+              scrollWidth:document.documentElement.scrollWidth,
+              clientWidth:document.documentElement.clientWidth,
+              h1:(document.querySelector('h1')?.textContent||'').replace(/\s+/g,' ').trim(),
+              logo:document.querySelector('img[src*="zobdino-mark-v2.svg"]')?.getAttribute('src')||'',
+              oldLogo:[...document.querySelectorAll('img')].some(img=>(img.getAttribute('src')||'').includes('zobdino-logo.png')),
+              unlabeledButtons:[...document.querySelectorAll('button')].filter(b=>!(b.textContent||'').trim()&&!b.getAttribute('aria-label')&&!b.getAttribute('aria-labelledby')).length,
+              body:document.body.innerText,
+            }));
+            await page.screenshot({path:`.qa-brand-v2/${name}.png`,fullPage:true});
+            assert(response?.ok(),`${name}: response ${response?.status()}`);
+            assert(data.scrollWidth<=data.clientWidth+1,`${name}: overflow`);
+            assert(data.logo.includes('zobdino-mark-v2.svg'),`${name}: new mark missing`);
+            assert(!data.oldLogo,`${name}: legacy logo still visible`);
+            assert(data.unlabeledButtons===0,`${name}: unlabeled buttons ${data.unlabeledButtons}`);
+            report.cases.push({name,path,viewport,dark,...data,body:undefined});
+            if(path==='/'){
+              assert(data.h1.includes('خلاصه‌های صوتی و کاربردی'),`${name}: hero heading missing`);
+              assert(data.body.includes('عادت‌های اتمی'),`${name}: Atomic Habits reference missing`);
+              assert(data.body.includes('تبدیل فایل شخصی'),`${name}: primary CTA missing`);
+            }
+            await context.close();
+          }
+          async function playback(browser){
+            const context=await browser.newContext({viewport:{width:1440,height:1000}});
+            await context.addInitScript(()=>localStorage.setItem('zobdino-locale','fa'));
+            const page=await context.newPage();
+            await page.goto(base+'/books/atomic-habits/',{waitUntil:'domcontentloaded',timeout:60000});
+            const player=page.locator('#player');
+            const group=player.getByRole('group',{name:'انتخاب صدای روایت'});
+            await group.waitFor({state:'visible',timeout:30000});
+            assert(await group.getByRole('button',{name:'صدای زن زبدینو',exact:true}).count()===1,'female voice missing');
+            assert(await group.getByRole('button',{name:'صدای مرد زبدینو',exact:true}).count()===1,'male voice missing');
+            report.behavior.dualVoice='pass';
+            await context.close();
+          }
+          const browser=await chromium.launch({headless:true});
+          try{
+            await inspect(browser,'home-desktop-light','/',{width:1440,height:1000},false);
+            await inspect(browser,'home-desktop-dark','/',{width:1440,height:1000},true);
+            await inspect(browser,'home-mobile-light','/',{width:390,height:844},false);
+            await inspect(browser,'home-mobile-dark','/',{width:390,height:844},true);
+            await inspect(browser,'atomic-desktop-light','/books/atomic-habits/',{width:1440,height:1000},false);
+            await inspect(browser,'atomic-mobile-light','/books/atomic-habits/',{width:390,height:844},false);
+            await playback(browser);
+            report.result='pass';
+          }catch(error){report.result='fail';report.error=error instanceof Error?error.stack||error.message:String(error);throw error}
+          finally{await fs.writeFile('.qa-brand-v2/report.json',JSON.stringify(report,null,2));await browser.close()}
+          EOF
+          node .qa-runner/brand-v2.mjs
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: brand-v2-${{ github.run_id }}
+          path: .qa-brand-v2
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
