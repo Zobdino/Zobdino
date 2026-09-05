@@ -12,36 +12,13 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://zobdino.ir"),
-  title: "Zobdino | AI Audio Intelligence for Documents",
+  title: "Zobdino | خلاصه، شواهد و صوت فارسی",
   description:
-    "Zobdino turns documents and books into structured summaries, full audio, and intelligent listening experiences.",
+    "زبدینو کتاب‌ها و فایل‌ها را به خلاصه ساختاریافته، شواهد قابل بررسی و تجربه صوتی فارسی تبدیل می‌کند.",
   applicationName: "Zobdino",
   icons: {
-    icon: [
-      {
-        url: "/favicon.png",
-        type: "image/png",
-        sizes: "48x48",
-      },
-      {
-        url: "/brand/zobdino-icon-192.png",
-        type: "image/png",
-        sizes: "192x192",
-      },
-      {
-        url: "/brand/zobdino-icon-512.png",
-        type: "image/png",
-        sizes: "512x512",
-      },
-    ],
-    apple: [
-      {
-        url: "/apple-touch-icon.png",
-        type: "image/png",
-        sizes: "180x180",
-      },
-    ],
-    shortcut: "/favicon.png",
+    icon: [{ url: "/brand/zobdino-mark-v2.svg", type: "image/svg+xml" }],
+    shortcut: "/brand/zobdino-mark-v2.svg",
   },
 };
 
