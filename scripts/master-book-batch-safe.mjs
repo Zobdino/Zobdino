@@ -5,6 +5,8 @@ import path from "node:path";
 
 const ROOT = process.cwd();
 const REPO = process.env.ZOBDINO_REPO || "Zobdino/Zobdino";
+const REF = process.env.ZOBDINO_BATCH_REF || "feat/268-master-book-completion-batch";
+const WORKFLOW = "dual-voice-production.yml";
 const STATE_DIR = path.join(ROOT, ".master-book-batch");
 const STATE_FILE = path.join(STATE_DIR, "state.json");
 const REPORT_FILE = path.join(STATE_DIR, "report.json");
@@ -23,14 +25,69 @@ function run(cmd, args, options = {}) {
   return spawnSync(cmd, args, {
     cwd: ROOT,
     encoding: "utf8",
-    shell: process.platform === "win32",
+    shell: false,
+    windowsHide: true,
     ...options,
   });
 }
 
-function latestFailedRunId(state) {
-  const batches = Object.values(state?.batches || {});
-  return Math.max(0, ...batches.map((entry) => Number(entry?.lastFailedRunId || entry?.runId || 0)));
+function ghJson(args) {
+  const result = run("gh", args, { stdio: ["ignore", "pipe", "pipe"] });
+  if (result.status !== 0) {
+    throw new Error(`gh ${args.join(" ")} failed (${result.status}): ${result.stderr || result.stdout || "unknown error"}`);
+  }
+  return JSON.parse(result.stdout || "null");
+}
+
+function listRecentWorkflowRuns() {
+  return ghJson([
+    "run", "list", "--repo", REPO, "--workflow", WORKFLOW,
+    "--branch", REF, "--event", "workflow_dispatch", "--limit", "50",
+    "--json", "databaseId,status,conclusion,headSha,createdAt,url",
+  ]);
+}
+
+function checkpointExists(runId, batch) {
+  const response = ghJson(["api", `repos/${REPO}/actions/runs/${runId}/artifacts?per_page=100`]);
+  const wanted = `dual-voice-failed-${batch}-${runId}`;
+  return Array.isArray(response?.artifacts) && response.artifacts.some((artifact) =>
+    artifact.name === wanted && artifact.expired === false,
+  );
+}
+
+function newestVerifiedCheckpoint(state) {
+  const stateCandidates = Object.entries(state?.batches || {})
+    .map(([batch, entry]) => ({
+      batch,
+      runId: Number(entry?.lastFailedRunId || entry?.runId || 0),
+    }))
+    .filter((item) => item.runId > 0);
+
+  const batchNames = new Set(stateCandidates.map((item) => item.batch));
+  if (!batchNames.size) {
+    batchNames.add("batch-b");
+    batchNames.add("batch-c");
+  }
+
+  try {
+    const runs = listRecentWorkflowRuns()
+      .filter((run) => run.status === "completed" && run.conclusion === "failure")
+      .sort((a, b) => Number(b.databaseId) - Number(a.databaseId));
+
+    for (const run of runs) {
+      const runId = Number(run.databaseId);
+      for (const batch of batchNames) {
+        try {
+          if (checkpointExists(runId, batch)) return { batch, runId };
+        } catch {}
+      }
+    }
+  } catch (error) {
+    console.warn(`Could not query GitHub for newest checkpoint: ${error.message}`);
+  }
+
+  const fallback = stateCandidates.sort((a, b) => b.runId - a.runId)[0];
+  return fallback || { batch: null, runId: 0 };
 }
 
 function resetResumeCounters() {
@@ -59,20 +116,20 @@ function isQuotaFailure(logText) {
   );
 }
 
-function persistQuotaPause(runId, logText) {
+function persistQuotaPause(runId, batchName, logText) {
   const state = readJson(STATE_FILE, { version: 4, books: {}, batches: {} });
-  let batchName = null;
-  for (const [name, entry] of Object.entries(state.batches || {})) {
-    if (Number(entry?.lastFailedRunId || entry?.runId || 0) === Number(runId)) {
-      batchName = name;
-      entry.status = "quota-paused";
-      entry.quotaPausedAt = new Date().toISOString();
-      entry.lastFailedRunId = Number(runId);
-      entry.resumes = 0;
-      entry.quotaReason = logText.includes("generate_content_free_tier_requests")
+  if (batchName) {
+    const entry = state.batches[batchName] || {};
+    state.batches[batchName] = {
+      ...entry,
+      status: "quota-paused",
+      quotaPausedAt: new Date().toISOString(),
+      lastFailedRunId: Number(runId),
+      resumes: 0,
+      quotaReason: logText.includes("generate_content_free_tier_requests")
         ? "generate_content_free_tier_requests"
-        : "quota_exceeded";
-    }
+        : "quota_exceeded",
+    };
   }
   state.status = "quota-paused";
   state.quotaPausedAt = new Date().toISOString();
@@ -88,7 +145,6 @@ function persistQuotaPause(runId, logText) {
     books: state.books || {},
     batches: state.batches || {},
   });
-  return batchName;
 }
 
 resetResumeCounters();
@@ -106,13 +162,13 @@ const child = run(process.execPath, [CORE], {
 if (child.status === 0) process.exit(0);
 
 const state = readJson(STATE_FILE, {});
-const runId = latestFailedRunId(state);
-const logText = failedRunLog(runId);
+const checkpoint = newestVerifiedCheckpoint(state);
+const logText = failedRunLog(checkpoint.runId);
 
-if (runId && isQuotaFailure(logText)) {
-  const batch = persistQuotaPause(runId, logText);
+if (checkpoint.runId && isQuotaFailure(logText)) {
+  persistQuotaPause(checkpoint.runId, checkpoint.batch, logText);
   console.log("\n=== MASTER BATCH QUOTA PAUSE ===");
-  console.log(`Checkpoint preserved: run #${runId}${batch ? ` (${batch})` : ""}`);
+  console.log(`Checkpoint preserved: run #${checkpoint.runId}${checkpoint.batch ? ` (${checkpoint.batch})` : ""}`);
   console.log("Gemini free-tier quota is currently exhausted. No additional workflow was dispatched.");
   console.log("Run the same command later; it will recover this exact checkpoint and continue without regenerating completed segments.");
   process.exit(0);
