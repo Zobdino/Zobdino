@@ -4,12 +4,15 @@ import { Headphones, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import BookCard from "@/components/BookCard";
+import { useLocale } from "@/components/LocaleProvider";
 import { books } from "@/lib/books";
 import { episodes } from "@/lib/episodes";
 
-const ALL = "همه";
+const ALL = "__all__";
 
 export default function BookExplorer() {
+  const { locale } = useLocale();
+  const fa = locale === "fa";
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState(ALL);
   const [onlyReady, setOnlyReady] = useState(false);
@@ -19,44 +22,51 @@ export default function BookExplorer() {
     [],
   );
 
+  const categoryLabel = (value: string) => {
+    if (value === ALL) return fa ? "همه" : "All";
+    const book = books.find((item) => item.category === value);
+    return fa ? value : book?.categoryEn ?? value;
+  };
+
   const filtered = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase("fa-IR");
+    const normalized = query.trim().toLocaleLowerCase(locale === "fa" ? "fa-IR" : "en-US");
 
     return books.filter((book) => {
       const matchesQuery =
         !normalized ||
-        [book.titleFa, book.titleEn, book.authorFa, book.authorEn, book.category]
+        [book.titleFa, book.titleEn, book.authorFa, book.authorEn, book.category, book.categoryEn]
           .join(" ")
-          .toLocaleLowerCase("fa-IR")
+          .toLocaleLowerCase(locale === "fa" ? "fa-IR" : "en-US")
           .includes(normalized);
 
       const matchesCategory = category === ALL || book.category === category;
-      const episode = episodes.find((item) => item.bookSlug === book.slug);
-      const matchesReady = !onlyReady || episode?.audio.status === "ready";
+      const matchesReady = !onlyReady || episodes.some((item) => item.bookSlug === book.slug && item.audio.status === "ready");
 
       return matchesQuery && matchesCategory && matchesReady;
     });
-  }, [category, onlyReady, query]);
+  }, [category, locale, onlyReady, query]);
 
   const readyCount = books.filter((book) =>
     episodes.some((episode) => episode.bookSlug === book.slug && episode.audio.status === "ready"),
   ).length;
 
+  const numberLocale = fa ? "fa-IR" : "en-US";
+
   return (
-    <section aria-label="جست‌وجو و مرور کتاب‌ها">
+    <section aria-label={fa ? "جست‌وجو و مرور کتاب‌ها" : "Search and browse books"}>
       <div className="z-surface mb-7 p-4 md:p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <label className="relative flex-1">
-            <span className="sr-only">جست‌وجوی کتاب</span>
+            <span className="sr-only">{fa ? "جست‌وجوی کتاب" : "Search books"}</span>
             <Search
               size={19}
-              className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 z-muted"
+              className={`pointer-events-none absolute top-1/2 -translate-y-1/2 z-muted ${fa ? "right-4" : "left-4"}`}
             />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="عنوان، نویسنده یا موضوع را جست‌وجو کن..."
-              className="z-focus w-full rounded-2xl border border-black/10 bg-white/75 py-3.5 pr-12 pl-4 text-sm font-semibold outline-none transition placeholder:font-normal placeholder:text-zinc-400 dark:border-white/10 dark:bg-white/[0.035] dark:placeholder:text-zinc-600"
+              placeholder={fa ? "عنوان، نویسنده یا موضوع را جست‌وجو کن..." : "Search by title, author, or topic..."}
+              className={`z-focus w-full rounded-2xl border border-black/10 bg-white/75 py-3.5 text-sm font-semibold outline-none transition placeholder:font-normal placeholder:text-zinc-400 dark:border-white/10 dark:bg-white/[0.035] dark:placeholder:text-zinc-600 ${fa ? "pr-12 pl-4" : "pl-12 pr-4"}`}
             />
           </label>
 
@@ -71,11 +81,11 @@ export default function BookExplorer() {
             }`}
           >
             <Headphones size={17} />
-            فقط آماده شنیدن
+            {fa ? "فقط آماده شنیدن" : "Audio ready only"}
           </button>
         </div>
 
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-1" aria-label="فیلتر موضوع">
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1" aria-label={fa ? "فیلتر موضوع" : "Topic filter"}>
           {categories.map((item) => (
             <button
               key={item}
@@ -88,15 +98,15 @@ export default function BookExplorer() {
                   : "border-black/10 bg-white/50 z-muted hover:border-violet-300 hover:text-[var(--page-fg)] dark:border-white/10 dark:bg-white/[0.025]"
               }`}
             >
-              {item}
+              {categoryLabel(item)}
             </button>
           ))}
         </div>
       </div>
 
       <div className="mb-6 flex flex-col gap-1 text-sm z-muted sm:flex-row sm:items-center sm:justify-between">
-        <p>{filtered.length.toLocaleString("fa-IR")} عنوان مطابق انتخاب تو</p>
-        <p>{readyCount.toLocaleString("fa-IR")} کتاب با نسخه صوتی آماده</p>
+        <p>{filtered.length.toLocaleString(numberLocale)} {fa ? "عنوان مطابق انتخاب تو" : "matching titles"}</p>
+        <p>{readyCount.toLocaleString(numberLocale)} {fa ? "کتاب با نسخه صوتی آماده" : "books with audio ready"}</p>
       </div>
 
       {filtered.length > 0 ? (
@@ -107,8 +117,8 @@ export default function BookExplorer() {
         </div>
       ) : (
         <div className="z-surface border-dashed py-16 text-center md:py-20">
-          <p className="text-xl font-black">نتیجه‌ای پیدا نشد</p>
-          <p className="mt-2 text-sm z-muted">عبارت جست‌وجو یا فیلتر موضوع را تغییر بده.</p>
+          <p className="text-xl font-black">{fa ? "نتیجه‌ای پیدا نشد" : "No results found"}</p>
+          <p className="mt-2 text-sm z-muted">{fa ? "عبارت جست‌وجو یا فیلتر موضوع را تغییر بده." : "Try a different search term or topic filter."}</p>
         </div>
       )}
     </section>
