@@ -40,6 +40,7 @@ export default async function BookPage({
 
   const bookEpisodes = episodes.filter((item) => item.bookSlug === book.slug);
   const canonicalEpisodes = bookEpisodes.filter((item) => isProductionAudio(item.audio));
+  const playerEpisodes = canonicalEpisodes.length > 0 ? canonicalEpisodes : bookEpisodes;
   const canonicalEpisode = canonicalEpisodes[0];
   const episode = canonicalEpisode ?? bookEpisodes[0];
   const ready = bookEpisodes.some((item) => item.audio.status === "ready");
@@ -143,8 +144,8 @@ export default async function BookPage({
           </>
         ) : null}
 
-        {bookEpisodes.length > 0 ? (
-          <BookAudioExperience episodes={bookEpisodes} />
+        {playerEpisodes.length > 0 ? (
+          <BookAudioExperience episodes={playerEpisodes} />
         ) : (
           <section className="mb-12 rounded-[2rem] border border-amber-500/15 bg-amber-500/[0.06] p-6 md:p-8">
             <div className="flex items-start gap-4">
