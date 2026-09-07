@@ -96,6 +96,13 @@ function remoteHead() {
   return output.split(/\s+/u)[0] || "";
 }
 
+function isAncestorSha(sourceSha, targetSha) {
+  if (!sourceSha || !targetSha) return false;
+  if (sourceSha === targetSha) return true;
+  const result = command("git", ["merge-base", "--is-ancestor", sourceSha, targetSha], { allowFailure: true });
+  return result.status === 0;
+}
+
 function listWorkflowRuns() {
   return ghJson([
     "run", "list", "--repo", REPO, "--workflow", WORKFLOW,
@@ -117,7 +124,11 @@ function checkpointExists(runId, batch) {
 function recoverNewestCheckpoint(batch, expectedSha, knownRunId = null) {
   const known = Number(knownRunId || 0);
   const candidates = listWorkflowRuns()
-    .filter((run) => run.headSha === expectedSha && run.status === "completed" && run.conclusion === "failure")
+    .filter((run) =>
+      run.status === "completed" &&
+      run.conclusion === "failure" &&
+      isAncestorSha(run.headSha, expectedSha),
+    )
     .sort((a, b) => Number(b.databaseId) - Number(a.databaseId));
 
   for (const candidate of candidates) {
@@ -125,7 +136,7 @@ function recoverNewestCheckpoint(batch, expectedSha, knownRunId = null) {
     if (runId <= known) break;
     try {
       if (checkpointExists(runId, batch)) {
-        console.log(`Recovered newer verified ${batch} checkpoint from run #${runId}.`);
+        console.log(`Recovered newer verified ${batch} checkpoint from run #${runId} (${candidate.headSha.slice(0, 7)} -> ${expectedSha.slice(0, 7)}).`);
         return runId;
       }
     } catch (error) {
