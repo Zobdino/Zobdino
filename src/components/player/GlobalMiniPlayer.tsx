@@ -7,19 +7,23 @@ import {
   Play,
   SkipBack,
   SkipForward,
+  X,
 } from "lucide-react";
+import { useState } from "react";
 
+import { useLocale } from "@/components/LocaleProvider";
+import { usePlayer } from "@/components/player/PlayerProvider";
 import { books } from "@/lib/books";
 import { episodes } from "@/lib/episodes";
-import { usePlayer } from "@/components/player/PlayerProvider";
 
-function formatTime(seconds: number) {
+function formatTime(seconds: number, locale: "fa" | "en") {
   const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
   const minutes = Math.floor(safe / 60);
   const remaining = Math.floor(safe % 60);
+  const numberLocale = locale === "fa" ? "fa-IR" : "en-US";
 
-  return `${minutes.toLocaleString("fa-IR")}:${remaining.toLocaleString(
-    "fa-IR",
+  return `${minutes.toLocaleString(numberLocale)}:${remaining.toLocaleString(
+    numberLocale,
     {
       minimumIntegerDigits: 2,
       useGrouping: false,
@@ -28,6 +32,9 @@ function formatTime(seconds: number) {
 }
 
 export default function GlobalMiniPlayer() {
+  const { locale } = useLocale();
+  const fa = locale === "fa";
+  const [dismissedEpisodeId, setDismissedEpisodeId] = useState<string | null>(null);
   const {
     activeEpisode,
     listening,
@@ -50,19 +57,16 @@ export default function GlobalMiniPlayer() {
     : null;
 
   const displayEpisode = activeEpisode ?? fallbackEpisode;
-  if (!displayEpisode) return null;
+  if (!displayEpisode || dismissedEpisodeId === displayEpisode.id) return null;
 
   const stored = listening.progress[displayEpisode.id];
   if (!activeEpisode && (!stored || stored.completed || stored.currentTime < 5)) {
     return null;
   }
 
-  const book =
-    books.find((item) => item.slug === displayEpisode.bookSlug) ?? null;
+  const book = books.find((item) => item.slug === displayEpisode.bookSlug) ?? null;
   const active = activeEpisode?.id === displayEpisode.id;
-  const displayCurrent = active
-    ? currentTime
-    : stored?.currentTime ?? 0;
+  const displayCurrent = active ? currentTime : stored?.currentTime ?? 0;
   const displayDuration = active
     ? duration || displayEpisode.audio.durationSeconds
     : stored?.duration || displayEpisode.audio.durationSeconds;
@@ -78,16 +82,38 @@ export default function GlobalMiniPlayer() {
       return;
     }
 
+    setDismissedEpisodeId(null);
     activateEpisode(displayEpisode.id, {
       autoplay: true,
       startAt: displayCurrent,
     });
   };
 
+  const handleOpenBook = () => {
+    setDismissedEpisodeId(null);
+    if (!active) {
+      activateEpisode(displayEpisode.id, {
+        autoplay: true,
+        startAt: displayCurrent,
+      });
+    }
+  };
+
+  const handleClose = () => {
+    if (active && isPlaying) togglePlayback();
+    setDismissedEpisodeId(displayEpisode.id);
+  };
+
+  const displayTitle = book
+    ? fa
+      ? displayEpisode.title
+      : `${book.titleEn} · Persian audio`
+    : displayEpisode.title;
+
   return (
     <aside
       className="fixed inset-x-3 bottom-3 z-50 mx-auto max-w-4xl overflow-hidden rounded-3xl border border-gray-700/80 bg-gray-950/95 shadow-2xl shadow-black/60 backdrop-blur-xl md:bottom-5"
-      aria-label="پلیر سراسری زبدینو"
+      aria-label={fa ? "پلیر سراسری زبدینو" : "Zobdino global player"}
     >
       <div className="h-1 bg-gray-800">
         <div
@@ -110,16 +136,17 @@ export default function GlobalMiniPlayer() {
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-bold text-accent">
-            {active ? "در حال پخش" : "ادامه شنیدن"}
+            {active ? (fa ? "در حال پخش" : "Now playing") : (fa ? "ادامه شنیدن" : "Continue listening")}
           </p>
           <Link
-            href={`/books/${displayEpisode.bookSlug}`}
+            href={`/books/${displayEpisode.bookSlug}#player`}
+            onClick={handleOpenBook}
             className="mt-1 block truncate font-bold text-white hover:text-accent"
           >
-            {displayEpisode.title}
+            {displayTitle}
           </Link>
           <p dir="ltr" className="mt-1 text-xs tabular-nums text-gray-500">
-            {formatTime(displayCurrent)} / {formatTime(displayDuration)}
+            {formatTime(displayCurrent, locale)} / {formatTime(displayDuration, locale)}
           </p>
         </div>
 
@@ -137,7 +164,7 @@ export default function GlobalMiniPlayer() {
               }
             }}
             className="rounded-full p-2.5 text-gray-400 transition hover:bg-gray-800 hover:text-white"
-            aria-label="۱۵ ثانیه قبل"
+            aria-label={fa ? "۱۵ ثانیه قبل" : "Back 15 seconds"}
           >
             <SkipBack size={21} />
           </button>
@@ -146,7 +173,7 @@ export default function GlobalMiniPlayer() {
             type="button"
             onClick={handlePrimary}
             className="rounded-full bg-accent p-3 text-white shadow-lg shadow-accent/30"
-            aria-label={active && isPlaying ? "توقف" : "پخش"}
+            aria-label={active && isPlaying ? (fa ? "توقف" : "Pause") : (fa ? "پخش" : "Play")}
           >
             {active && isBuffering ? (
               <span className="block h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
@@ -163,17 +190,14 @@ export default function GlobalMiniPlayer() {
               if (!active) {
                 activateEpisode(displayEpisode.id, {
                   autoplay: false,
-                  startAt: Math.min(
-                    displayCurrent + 15,
-                    displayDuration,
-                  ),
+                  startAt: Math.min(displayCurrent + 15, displayDuration),
                 });
               } else {
                 skip(15);
               }
             }}
             className="rounded-full p-2.5 text-gray-400 transition hover:bg-gray-800 hover:text-white"
-            aria-label="۱۵ ثانیه بعد"
+            aria-label={fa ? "۱۵ ثانیه بعد" : "Forward 15 seconds"}
           >
             <SkipForward size={21} />
           </button>
@@ -183,13 +207,19 @@ export default function GlobalMiniPlayer() {
           type="button"
           onClick={handlePrimary}
           className="rounded-full bg-accent p-3 text-white sm:hidden"
-          aria-label={active && isPlaying ? "توقف" : "پخش"}
+          aria-label={active && isPlaying ? (fa ? "توقف" : "Pause") : (fa ? "پخش" : "Play")}
         >
-          {active && isPlaying ? (
-            <Pause size={22} fill="currentColor" />
-          ) : (
-            <Play size={22} fill="currentColor" />
-          )}
+          {active && isPlaying ? <Pause size={22} fill="currentColor" /> : <Play size={22} fill="currentColor" />}
+        </button>
+
+        <button
+          type="button"
+          onClick={handleClose}
+          className="rounded-full p-2.5 text-gray-400 transition hover:bg-gray-800 hover:text-white"
+          aria-label={fa ? "بستن ادامه شنیدن" : "Close continue listening"}
+          title={fa ? "بستن" : "Close"}
+        >
+          <X size={20} />
         </button>
       </div>
 
@@ -202,7 +232,7 @@ export default function GlobalMiniPlayer() {
           value={Math.min(displayCurrent, Math.max(displayDuration, 1))}
           onChange={(event) => seekTo(Number(event.target.value))}
           className="sr-only"
-          aria-label="موقعیت پخش پلیر سراسری"
+          aria-label={fa ? "موقعیت پخش پلیر سراسری" : "Global player position"}
         />
       )}
     </aside>
