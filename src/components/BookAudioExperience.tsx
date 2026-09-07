@@ -4,12 +4,22 @@ import { Headphones, Mic2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import AudioPlayer from "@/components/AudioPlayer";
+import { useLocale } from "@/components/LocaleProvider";
 import TranscriptPanel from "@/components/player/TranscriptPanel";
 import { usePlayer } from "@/components/player/PlayerProvider";
 import { getEpisodeVoiceLabelFa, isProductionAudio } from "@/lib/audio";
 import type { Episode } from "@/lib/episodes";
 
+function voiceLabelEn(episode: Episode) {
+  const profile = episode.audio.voiceProfile;
+  if (profile === "sulafat-v1") return "Zobdino female voice";
+  if (profile === "schedar-v1") return "Zobdino male voice";
+  return "Persian narration";
+}
+
 export default function BookAudioExperience({ episodes }: { episodes: readonly Episode[] }) {
+  const { locale } = useLocale();
+  const fa = locale === "fa";
   const { activeEpisode, currentTime, activateEpisode } = usePlayer();
   const playableEpisodes = useMemo(() => episodes.filter((episode) => episode.audio.status === "ready"), [episodes]);
   const canonicalEpisodes = useMemo(() => playableEpisodes.filter((episode) => isProductionAudio(episode.audio)), [playableEpisodes]);
@@ -34,19 +44,19 @@ export default function BookAudioExperience({ episodes }: { episodes: readonly E
         <div className="border-b border-[#08253a]/8 p-5 dark:border-white/8 md:p-7">
           <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
             <div>
-              <div className="inline-flex items-center gap-2 text-sm font-black text-[#b97c08] dark:text-[#f4c66a]"><Headphones size={17} />شنیدن کتاب</div>
-              <h2 className="mt-2 text-2xl font-black text-[#08253a] dark:text-[#fff7e8] md:text-3xl">{selected.title}</h2>
-              <p className="mt-2 max-w-2xl text-sm leading-7 z-muted">صدا را انتخاب کن، از همان نقطه ادامه بده و بدون خروج از صفحه بین روایت‌ها جابه‌جا شو.</p>
+              <div className="inline-flex items-center gap-2 text-sm font-black text-[#b97c08] dark:text-[#f4c66a]"><Headphones size={17} />{fa ? "شنیدن کتاب" : "Listen to the book"}</div>
+              <h2 className="mt-2 text-2xl font-black text-[#08253a] dark:text-[#fff7e8] md:text-3xl">{fa ? selected.title : `${selected.bookSlug === "deep-work" ? "Deep Work" : selected.bookSlug === "atomic-habits" ? "Atomic Habits" : selected.title} · ${voiceLabelEn(selected)}`}</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-7 z-muted">{fa ? "صدا را انتخاب کن، از همان نقطه ادامه بده و بدون خروج از صفحه بین روایت‌ها جابه‌جا شو." : "Choose a voice, continue from the same position, and switch narration without leaving the page."}</p>
             </div>
 
             {canonicalEpisodes.length > 1 ? (
-              <div className="grid grid-cols-2 gap-2 rounded-2xl border border-[#08253a]/10 bg-[#fff7e8]/68 p-1.5 dark:border-white/10 dark:bg-white/[0.035]" role="group" aria-label="انتخاب صدای روایت">
+              <div className="grid grid-cols-2 gap-2 rounded-2xl border border-[#08253a]/10 bg-[#fff7e8]/68 p-1.5 dark:border-white/10 dark:bg-white/[0.035]" role="group" aria-label={fa ? "انتخاب صدای روایت" : "Choose narration voice"}>
                 {canonicalEpisodes.map((episode) => {
                   const active = episode.id === selected.id;
                   return (
                     <button key={episode.id} type="button" onClick={() => switchVoice(episode)} aria-pressed={active} className={`z-focus inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black transition ${active ? "bg-[#08253a] text-[#fff7e8] shadow-md shadow-[#08253a]/15 dark:bg-[#f4c66a] dark:text-[#08253a]" : "z-muted hover:bg-white dark:hover:bg-white/[0.06]"}`}>
                       <Mic2 size={15} />
-                      {getEpisodeVoiceLabelFa(episode.audio)}
+                      {fa ? getEpisodeVoiceLabelFa(episode.audio) : voiceLabelEn(episode)}
                     </button>
                   );
                 })}
@@ -57,7 +67,7 @@ export default function BookAudioExperience({ episodes }: { episodes: readonly E
 
         <div className="p-5 md:p-7">
           <AudioPlayer episode={selected} />
-          <p className="mt-5 text-sm leading-7 z-muted md:text-base md:leading-8">{selected.description}</p>
+          <p className="mt-5 text-sm leading-7 z-muted md:text-base md:leading-8">{fa ? selected.description : "This is the verified Persian audio edition. Playback progress is preserved across the site."}</p>
         </div>
       </section>
 
