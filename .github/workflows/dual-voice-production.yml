@@ -206,11 +206,60 @@ jobs:
             RESUME_ARGS=(--resume-metadata .dual-voice/resume-index.json)
           fi
 
-          node scripts/dual-voice-render.mjs \
-            --mode generate \
-            --batch "${{ inputs.batch }}" \
-            --out .dual-voice \
-            "${RESUME_ARGS[@]}"
+          run_generation() {
+            local log_file="$1"
+            set +e
+            node scripts/dual-voice-render.mjs \
+              --mode generate \
+              --batch "${{ inputs.batch }}" \
+              --out .dual-voice \
+              "${RESUME_ARGS[@]}" \
+              2>&1 | tee "$log_file"
+            local node_status=${PIPESTATUS[0]}
+            set -e
+            return "$node_status"
+          }
+
+          FIRST_LOG="$RUNNER_TEMP/dual-voice-generation-attempt-1.log"
+          if run_generation "$FIRST_LOG"; then
+            exit 0
+          fi
+
+          if ! grep -Eq 'quota_exceeded|generate_content_free_tier_requests' "$FIRST_LOG"; then
+            echo "::error::Generation failed for a non-quota reason; refusing in-run retry."
+            exit 1
+          fi
+
+          RETRY_SECONDS="$(
+            python - "$FIRST_LOG" <<'PY'
+          import math
+          import re
+          import sys
+
+          text = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+          match = re.search(r'Please retry in\s+([0-9]+(?:\.[0-9]+)?)s', text, re.I)
+          if not match:
+              raise SystemExit(2)
+          seconds = float(match.group(1))
+          # Honor provider guidance plus a small safety margin; cap avoids runaway waits.
+          print(max(1, min(120, math.ceil(seconds) + 5)))
+          PY
+          )" || {
+            echo "::error::Quota failure did not include a parseable provider retry delay; checkpointing instead."
+            exit 1
+          }
+
+          echo "Gemini free-tier request window hit; provider-directed in-run retry after ${RETRY_SECONDS}s (one retry maximum)."
+          sleep "$RETRY_SECONDS"
+
+          SECOND_LOG="$RUNNER_TEMP/dual-voice-generation-attempt-2.log"
+          if run_generation "$SECOND_LOG"; then
+            echo "Provider-directed in-run quota retry PASS."
+            exit 0
+          fi
+
+          echo "::error::Single provider-directed in-run retry exhausted; preserving checkpoint for a later workflow resume."
+          exit 1
 
       - name: Upload failed generation checkpoint
         if: failure()
@@ -457,7 +506,6 @@ jobs:
               '.assets[] | [.bookSlug,.role,.providerVoice,.podcast.path,.podcast.sha256,.podcast.bytes] | @tsv' \
               .dual-voice/dual-voice-manifest.json
           )
-
 
       - name: Record batch evidence
         shell: bash
