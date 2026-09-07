@@ -1,7 +1,5 @@
 "use client";
 
-import { Headphones, Search, Sparkles } from "lucide-react";
-
 import BookExplorer from "@/components/BookExplorer";
 import { useLocale } from "@/components/LocaleProvider";
 
@@ -9,43 +7,18 @@ export default function BooksPage() {
   const { locale } = useLocale();
   const fa = locale === "fa";
 
-  const highlights = fa
-    ? [
-        [Search, "جست‌وجوی سریع", "عنوان، نویسنده یا موضوع"],
-        [Headphones, "آماده شنیدن", "فیلتر مستقیم نسخه‌های صوتی"],
-        [Sparkles, "خلاصه فارسی", "ایده‌های اصلی در یک نگاه"],
-      ]
-    : [
-        [Search, "Fast search", "Title, author, or topic"],
-        [Headphones, "Ready to listen", "Filter directly to audio-ready books"],
-        [Sparkles, "Persian summaries", "Key ideas at a glance"],
-      ];
-
   return (
-    <main className="z-container py-10 md:py-16">
-      <section className="mb-10 grid gap-7 lg:grid-cols-[1fr_360px] lg:items-end">
-        <div className="max-w-3xl">
-          <span className="z-eyebrow">{fa ? "کتاب‌ها" : "Books"}</span>
-          <h1 className="mt-4 text-4xl font-black leading-tight tracking-[-0.045em] text-[#08253a] dark:text-[#fff7e8] md:text-6xl">
-            {fa ? "کتاب بعدی‌ات را برای فهمیدن انتخاب کن." : "Choose your next book to understand deeply."}
-          </h1>
-          <p className="mt-5 max-w-2xl text-base leading-8 z-muted md:text-lg">
-            {fa
-              ? "بین کتاب‌ها جست‌وجو کن، موضوع مورد علاقه‌ات را پیدا کن و هر عنوانی که نسخه صوتی آماده دارد همان‌جا شروع به شنیدن کن."
-              : "Search the catalog, find the topics you care about, and start listening immediately when an approved audio edition is available."}
-          </p>
-        </div>
-        <div className="z-surface grid gap-3 p-4 sm:grid-cols-3 lg:grid-cols-1">
-          {highlights.map(([Icon, title, description]) => {
-            const ItemIcon = Icon as typeof Search;
-            return (
-              <div key={String(title)} className="flex items-center gap-3 rounded-2xl border border-[#08253a]/8 bg-white/65 p-3 dark:border-white/8 dark:bg-white/[0.025]">
-                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#f4c66a]/22 text-[#b97c08] dark:text-[#f4c66a]"><ItemIcon size={18}/></span>
-                <div><p className="text-sm font-black">{String(title)}</p><p className="mt-0.5 text-xs z-muted">{String(description)}</p></div>
-              </div>
-            );
-          })}
-        </div>
+    <main className="z-container py-10 md:py-14">
+      <section className="mx-auto mb-10 max-w-4xl text-center md:mb-12">
+        <span className="z-eyebrow">{fa ? "کتاب‌ها" : "Books"}</span>
+        <h1 className="mt-4 text-4xl font-black leading-tight tracking-[-0.045em] text-[#08253a] dark:text-[#fff7e8] md:text-6xl">
+          {fa ? "کتاب بعدی‌ات را برای فهمیدن انتخاب کن." : "Choose your next book to understand."}
+        </h1>
+        <p className="mx-auto mt-5 max-w-2xl text-base leading-8 z-muted md:text-lg">
+          {fa
+            ? "خلاصه‌های عمیق، شواهد معتبر و اقدام‌های عملی برای رشد واقعی. بین کتاب‌ها جست‌وجو کن و هرجا نسخه صوتی آماده بود همان‌جا شروع به شنیدن کن."
+            : "Deep summaries, reliable evidence, and practical actions for real growth. Search the catalog and start listening whenever an approved audio edition is ready."}
+        </p>
       </section>
       <BookExplorer />
     </main>
