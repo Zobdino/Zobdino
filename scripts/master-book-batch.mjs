@@ -11,7 +11,10 @@ const TRACKING_ISSUE = process.env.ZOBDINO_TRACKING_ISSUE || "268";
 const MEDIA_TAG = process.env.ZOBDINO_MEDIA_TAG || "media-dual-v0.2.0-beta.7";
 const MAX_RESUMES_PER_BATCH = Number(process.env.ZOBDINO_MAX_RESUMES || 30);
 const POLL_MS = Number(process.env.ZOBDINO_POLL_MS || 30000);
-const RESUME_COOLDOWN_MS = Number(process.env.ZOBDINO_RESUME_COOLDOWN_MS || 75000);
+const RESUME_COOLDOWN_MS = Number(process.env.ZOBDINO_RESUME_COOLDOWN_MS || 90000);
+const GH_MAX_ATTEMPTS = Number(process.env.ZOBDINO_GH_MAX_ATTEMPTS || 8);
+const GH_RETRY_BASE_MS = Number(process.env.ZOBDINO_GH_RETRY_BASE_MS || 3000);
+const GH_RETRY_MAX_MS = Number(process.env.ZOBDINO_GH_RETRY_MAX_MS || 30000);
 const STATE_DIR = path.join(ROOT, ".master-book-batch");
 const STATE_FILE = path.join(STATE_DIR, "state.json");
 const REPORT_FILE = path.join(STATE_DIR, "report.json");
@@ -22,30 +25,48 @@ const BATCHES = [
 ];
 const CANONICAL_COMPLETE = new Set(["atomic-habits", "deep-work"]);
 
-function command(cmd, args, { inherit = false, allowFailure = false } = {}) {
-  const result = spawnSync(cmd, args, {
-    cwd: ROOT,
-    encoding: "utf8",
-    shell: process.platform === "win32",
-    stdio: inherit ? "inherit" : ["ignore", "pipe", "pipe"],
-  });
-  if (!allowFailure && result.status !== 0) {
-    throw new Error(`${cmd} ${args.join(" ")} failed (${result.status}): ${result.stderr || result.stdout}`);
-  }
-  return { status: result.status, stdout: result.stdout?.trim() || "", stderr: result.stderr?.trim() || "" };
-}
-
-function ghJson(args) {
-  const result = command("gh", args);
-  return JSON.parse(result.stdout || "null");
-}
-
 function sleep(ms) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     const remaining = end - Date.now();
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.min(remaining, 1000));
   }
+}
+
+function command(cmd, args, { inherit = false, allowFailure = false, retry = false } = {}) {
+  const maxAttempts = retry ? GH_MAX_ATTEMPTS : 1;
+  let lastResult = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const result = spawnSync(cmd, args, {
+      cwd: ROOT,
+      encoding: "utf8",
+      shell: process.platform === "win32",
+      stdio: inherit ? "inherit" : ["ignore", "pipe", "pipe"],
+    });
+    lastResult = result;
+
+    if (result.status === 0 || allowFailure) {
+      return { status: result.status, stdout: result.stdout?.trim() || "", stderr: result.stderr?.trim() || "" };
+    }
+
+    if (attempt < maxAttempts) {
+      const delay = Math.min(GH_RETRY_BASE_MS * (2 ** (attempt - 1)), GH_RETRY_MAX_MS);
+      console.warn(`GitHub command failed (attempt ${attempt}/${maxAttempts}); retrying in ${(delay / 1000).toFixed(0)}s...`);
+      sleep(delay);
+    }
+  }
+
+  throw new Error(`${cmd} ${args.join(" ")} failed (${lastResult?.status}): ${lastResult?.stderr || lastResult?.stdout || "unknown error"}`);
+}
+
+function ghCommand(args, options = {}) {
+  return command("gh", args, { ...options, retry: true });
+}
+
+function ghJson(args) {
+  const result = ghCommand(args);
+  return JSON.parse(result.stdout || "null");
 }
 
 function readJson(file, fallback) {
@@ -83,6 +104,37 @@ function listWorkflowRuns() {
   ]);
 }
 
+function checkpointExists(runId, batch) {
+  const response = ghJson([
+    "api", `repos/${REPO}/actions/runs/${runId}/artifacts?per_page=100`,
+  ]);
+  const wanted = `dual-voice-failed-${batch}-${runId}`;
+  return Array.isArray(response?.artifacts) && response.artifacts.some((artifact) =>
+    artifact.name === wanted && artifact.expired === false,
+  );
+}
+
+function recoverNewestCheckpoint(batch, expectedSha, knownRunId = null) {
+  const known = Number(knownRunId || 0);
+  const candidates = listWorkflowRuns()
+    .filter((run) => run.headSha === expectedSha && run.status === "completed" && run.conclusion === "failure")
+    .sort((a, b) => Number(b.databaseId) - Number(a.databaseId));
+
+  for (const candidate of candidates) {
+    const runId = Number(candidate.databaseId);
+    if (runId <= known) break;
+    try {
+      if (checkpointExists(runId, batch)) {
+        console.log(`Recovered newer verified ${batch} checkpoint from run #${runId}.`);
+        return runId;
+      }
+    } catch (error) {
+      console.warn(`Could not inspect checkpoint for run #${runId}: ${error.message}`);
+    }
+  }
+  return known || null;
+}
+
 function dispatchAndResolveRun(batch, resumeRunId, expectedSha) {
   const before = new Set(listWorkflowRuns().map((run) => Number(run.databaseId)));
   const args = [
@@ -94,7 +146,7 @@ function dispatchAndResolveRun(batch, resumeRunId, expectedSha) {
   if (resumeRunId) args.push("-f", `resume_run_id=${resumeRunId}`);
 
   console.log(`\nDispatching ${batch}${resumeRunId ? ` from checkpoint ${resumeRunId}` : ""}...`);
-  command("gh", args, { inherit: true });
+  ghCommand(args, { inherit: true });
 
   for (let attempt = 0; attempt < 40; attempt += 1) {
     sleep(3000);
@@ -105,6 +157,12 @@ function dispatchAndResolveRun(batch, resumeRunId, expectedSha) {
       console.log(`Run #${candidate.databaseId}: ${candidate.url}`);
       return Number(candidate.databaseId);
     }
+  }
+
+  const recovered = recoverNewestCheckpoint(batch, expectedSha, resumeRunId);
+  if (recovered && recovered !== Number(resumeRunId || 0)) {
+    console.log(`Dispatch resolution recovered run #${recovered} via verified checkpoint.`);
+    return recovered;
   }
   throw new Error(`Could not resolve the newly dispatched ${batch} run.`);
 }
@@ -124,16 +182,6 @@ function waitForRun(runId) {
     }
     sleep(POLL_MS);
   }
-}
-
-function checkpointExists(runId, batch) {
-  const response = ghJson([
-    "api", `repos/${REPO}/actions/runs/${runId}/artifacts?per_page=100`,
-  ]);
-  const wanted = `dual-voice-failed-${batch}-${runId}`;
-  return Array.isArray(response?.artifacts) && response.artifacts.some((artifact) =>
-    artifact.name === wanted && artifact.expired === false,
-  );
 }
 
 function runPreflight() {
@@ -159,7 +207,7 @@ assertTool("git");
 assertTool("node");
 assertTool("npm");
 assertTool("gh", ["--version"]);
-command("gh", ["auth", "status"], { inherit: true });
+ghCommand(["auth", "status"], { inherit: true });
 
 if (currentBranch() !== REF) throw new Error(`Run this command on ${REF}; current branch is ${currentBranch()}.`);
 const expectedSha = currentHead();
@@ -169,7 +217,7 @@ if (!originSha || originSha !== expectedSha) {
 }
 
 const state = readJson(STATE_FILE, {
-  version: 2,
+  version: 3,
   ref: REF,
   sourceSha: expectedSha,
   mediaTag: MEDIA_TAG,
@@ -177,6 +225,7 @@ const state = readJson(STATE_FILE, {
   books: {},
   batches: {},
 });
+state.version = 3;
 state.sourceSha = expectedSha;
 state.mediaTag = MEDIA_TAG;
 for (const slug of CANONICAL_COMPLETE) {
@@ -196,8 +245,22 @@ for (const plan of BATCHES) {
     continue;
   }
 
-  let resumeRunId = state.batches[plan.batch]?.lastFailedRunId || null;
+  let resumeRunId = recoverNewestCheckpoint(
+    plan.batch,
+    expectedSha,
+    state.batches[plan.batch]?.lastFailedRunId || state.batches[plan.batch]?.runId || null,
+  );
   let resumes = Number(state.batches[plan.batch]?.resumes || 0);
+
+  if (resumeRunId && resumeRunId !== Number(state.batches[plan.batch]?.lastFailedRunId || 0)) {
+    state.batches[plan.batch] = {
+      ...(state.batches[plan.batch] || {}),
+      status: "checkpointed-failure",
+      lastFailedRunId: resumeRunId,
+      recoveredAt: new Date().toISOString(),
+    };
+    writeJson(STATE_FILE, state);
+  }
 
   while (true) {
     const runId = dispatchAndResolveRun(plan.batch, resumeRunId, expectedSha);
