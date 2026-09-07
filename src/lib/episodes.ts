@@ -1,6 +1,9 @@
 import rawEpisodes from "@/content/episodes.json";
 
-import { ATOMIC_HABITS_CANONICAL_AUDIO } from "@/lib/canonical-audio";
+import {
+  ATOMIC_HABITS_CANONICAL_AUDIO,
+  DEEP_WORK_CANONICAL_AUDIO,
+} from "@/lib/canonical-audio";
 import type { VoiceProfileId } from "@/lib/voices";
 
 export type EpisodeFormat = "standard";
@@ -41,31 +44,48 @@ const baseEpisodes = rawEpisodes as readonly Episode[];
 const atomicHabitsBase = baseEpisodes.find(
   (episode) => episode.bookSlug === "atomic-habits",
 );
+const deepWorkBase = baseEpisodes.find((episode) => episode.bookSlug === "deep-work");
 
-function canonicalizeAtomicHabitsTranscript(transcript: string) {
+function canonicalizeZobdinoTranscript(transcript: string) {
   return transcript
     .replaceAll("کتاب‌کست", "زبدینو")
     .replaceAll("کتاب کست", "زبدینو")
     .replaceAll("KetabCast", "Zobdino");
 }
 
-const canonicalAtomicHabitsEpisodes: readonly Episode[] = atomicHabitsBase
-  ? (Object.entries(ATOMIC_HABITS_CANONICAL_AUDIO).map(
-      ([voiceProfile, audio]) => ({
-        ...atomicHabitsBase,
-        id: `atomic-habits-${voiceProfile}`,
-        title: `${atomicHabitsBase.title} · ${voiceProfile === "sulafat-v1" ? "صدای زن" : "صدای مرد"}`,
-        transcript: canonicalizeAtomicHabitsTranscript(atomicHabitsBase.transcript),
+function buildCanonicalVoiceEpisodes(
+  base: Episode | undefined,
+  audioByVoice: Record<string, EpisodeAudioAsset>,
+  slug: string,
+): readonly Episode[] {
+  return base
+    ? (Object.entries(audioByVoice).map(([voiceProfile, audio]) => ({
+        ...base,
+        id: `${slug}-${voiceProfile}`,
+        title: `${base.title} · ${voiceProfile === "sulafat-v1" ? "صدای زن" : "صدای مرد"}`,
+        transcript: canonicalizeZobdinoTranscript(base.transcript),
         audio,
-      }),
-    ) as readonly Episode[])
-  : [];
+      })) as readonly Episode[])
+    : [];
+}
+
+const canonicalAtomicHabitsEpisodes = buildCanonicalVoiceEpisodes(
+  atomicHabitsBase,
+  ATOMIC_HABITS_CANONICAL_AUDIO,
+  "atomic-habits",
+);
+const canonicalDeepWorkEpisodes = buildCanonicalVoiceEpisodes(
+  deepWorkBase,
+  DEEP_WORK_CANONICAL_AUDIO,
+  "deep-work",
+);
 
 /**
- * Keeps the legacy catalog intact while overlaying verified canonical variants
- * for Atomic Habits. The public player prefers approved canonical variants.
+ * Keeps the legacy catalog intact while overlaying verified canonical variants.
+ * The public player prefers approved canonical variants.
  */
 export const episodes = [
   ...baseEpisodes,
   ...canonicalAtomicHabitsEpisodes,
+  ...canonicalDeepWorkEpisodes,
 ] as readonly Episode[];
