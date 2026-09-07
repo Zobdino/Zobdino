@@ -1,7 +1,10 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import { Clock3, Headphones, LoaderCircle, Play } from "lucide-react";
 
+import { useLocale } from "@/components/LocaleProvider";
 import { getEpisodeVoiceLabelFa, isProductionAudio } from "@/lib/audio";
 import { episodes } from "@/lib/episodes";
 import type { Book } from "@/lib/books";
@@ -11,6 +14,8 @@ interface BookCardProps {
 }
 
 export default function BookCard({ book }: BookCardProps) {
+  const { locale } = useLocale();
+  const fa = locale === "fa";
   const bookEpisodes = episodes.filter((item) => item.bookSlug === book.slug);
   const episode =
     bookEpisodes.find((item) => isProductionAudio(item.audio)) ??
@@ -22,7 +27,7 @@ export default function BookCard({ book }: BookCardProps) {
 
   const durationLabel =
     episode && episode.audio.durationSeconds > 0
-      ? `${Math.ceil(episode.audio.durationSeconds / 60).toLocaleString("fa-IR")} دقیقه`
+      ? `${Math.ceil(episode.audio.durationSeconds / 60).toLocaleString(fa ? "fa-IR" : "en-US")} ${fa ? "دقیقه" : "min"}`
       : null;
 
   return (
@@ -33,7 +38,7 @@ export default function BookCard({ book }: BookCardProps) {
       <div className="relative aspect-[3/4] w-full overflow-hidden rounded-[1.3rem] bg-zinc-900">
         <Image
           src={book.coverUrl}
-          alt={`جلد ${book.titleFa}`}
+          alt={fa ? `جلد ${book.titleFa}` : `${book.titleEn} cover`}
           fill
           unoptimized
           sizes="(max-width: 768px) 100vw, 25vw"
@@ -42,7 +47,7 @@ export default function BookCard({ book }: BookCardProps) {
 
         <div className="absolute inset-x-3 top-3 flex items-start justify-between gap-2">
           <span className="rounded-full border border-white/12 bg-black/72 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">
-            {book.category}
+            {fa ? book.category : book.categoryEn}
           </span>
 
           <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold backdrop-blur ${
@@ -51,7 +56,7 @@ export default function BookCard({ book }: BookCardProps) {
               : "border-white/12 bg-black/72 text-zinc-200"
           }`}>
             {ready ? <Headphones size={13} /> : <LoaderCircle size={13} />}
-            {ready ? "آماده شنیدن" : "صوت در حال آماده‌سازی"}
+            {ready ? (fa ? "آماده شنیدن" : "Ready to listen") : (fa ? "صوت در حال آماده‌سازی" : "Audio in progress")}
           </span>
         </div>
 
@@ -63,13 +68,17 @@ export default function BookCard({ book }: BookCardProps) {
       </div>
 
       <div className="px-1 pb-1 pt-4">
-        <p className="text-xs font-bold tracking-wide text-violet-700 dark:text-violet-300">{book.titleEn}</p>
-        <h3 className="mt-1 text-xl font-black transition group-hover:text-violet-700 dark:group-hover:text-violet-300">{book.titleFa}</h3>
-        <p className="mt-2 text-sm z-muted">{book.authorFa}</p>
+        <p className="text-xs font-bold tracking-wide text-violet-700 dark:text-violet-300">{fa ? book.titleEn : book.categoryEn}</p>
+        <h3 className="mt-1 text-xl font-black transition group-hover:text-violet-700 dark:group-hover:text-violet-300">{fa ? book.titleFa : book.titleEn}</h3>
+        <p className="mt-2 text-sm z-muted">{fa ? book.authorFa : book.authorEn}</p>
 
         {ready && voiceLabel ? (
           <p className="mt-3 text-xs z-muted">
-            روایت {productionAudio ? "تأییدشده" : "در دسترس"}: <span className="font-black text-[var(--page-fg)]">{voiceLabel}</span>
+            {fa ? (
+              <>روایت {productionAudio ? "تأییدشده" : "در دسترس"}: <span className="font-black text-[var(--page-fg)]">{voiceLabel}</span></>
+            ) : (
+              <>{productionAudio ? "Approved" : "Available"} Persian narration</>
+            )}
           </p>
         ) : null}
 
@@ -80,11 +89,11 @@ export default function BookCard({ book }: BookCardProps) {
               {durationLabel}
             </span>
           ) : (
-            <span className="z-muted">خلاصه فارسی در دسترس</span>
+            <span className="z-muted">{fa ? "خلاصه فارسی در دسترس" : "Persian summary available"}</span>
           )}
 
           <span className="font-black text-violet-700 dark:text-violet-300">
-            {ready ? "شروع شنیدن ←" : "دیدن کتاب ←"}
+            {ready ? (fa ? "شروع شنیدن ←" : "Start listening →") : (fa ? "دیدن کتاب ←" : "View book →")}
           </span>
         </div>
       </div>
