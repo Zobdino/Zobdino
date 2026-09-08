@@ -20,6 +20,9 @@ import BookAudioExperience from "@/components/BookAudioExperience";
 import LocaleText from "@/components/LocaleText";
 import { atomicHabitsReference } from "@/content/atomic-habits-reference";
 import { deepWorkReference } from "@/content/deep-work-reference";
+import { leadingTeamsReference } from "@/content/leading-teams-reference";
+import { thinkAgainReference } from "@/content/think-again-reference";
+import { zeroToOneReference } from "@/content/zero-to-one-reference";
 import { isProductionAudio } from "@/lib/audio";
 import { books } from "@/lib/books";
 import { episodes } from "@/lib/episodes";
@@ -27,6 +30,9 @@ import { episodes } from "@/lib/episodes";
 const referenceContentBySlug = {
   "atomic-habits": atomicHabitsReference,
   "deep-work": deepWorkReference,
+  "think-again": thinkAgainReference,
+  "zero-to-one": zeroToOneReference,
+  "leading-teams": leadingTeamsReference,
 } as const;
 
 export async function generateStaticParams() {
