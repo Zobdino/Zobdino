@@ -220,18 +220,9 @@ jobs:
             return "$node_status"
           }
 
-          FIRST_LOG="$RUNNER_TEMP/dual-voice-generation-attempt-1.log"
-          if run_generation "$FIRST_LOG"; then
-            exit 0
-          fi
-
-          if ! grep -Eq 'quota_exceeded|generate_content_free_tier_requests' "$FIRST_LOG"; then
-            echo "::error::Generation failed for a non-quota reason; refusing in-run retry."
-            exit 1
-          fi
-
-          RETRY_SECONDS="$(
-            python - "$FIRST_LOG" <<'PY'
+          retry_delay() {
+            local log_file="$1"
+            python - "$log_file" <<'PY'
           import math
           import re
           import sys
@@ -241,25 +232,52 @@ jobs:
           if not match:
               raise SystemExit(2)
           seconds = float(match.group(1))
-          # Honor provider guidance plus a small safety margin; cap avoids runaway waits.
           print(max(1, min(120, math.ceil(seconds) + 5)))
           PY
-          )" || {
-            echo "::error::Quota failure did not include a parseable provider retry delay; checkpointing instead."
-            exit 1
           }
 
-          echo "Gemini free-tier request window hit; provider-directed in-run retry after ${RETRY_SECONDS}s (one retry maximum)."
-          sleep "$RETRY_SECONDS"
+          MAX_QUOTA_WINDOWS=3
+          MAX_TOTAL_QUOTA_WAIT=300
+          quota_windows_used=0
+          total_quota_wait=0
+          attempt=1
 
-          SECOND_LOG="$RUNNER_TEMP/dual-voice-generation-attempt-2.log"
-          if run_generation "$SECOND_LOG"; then
-            echo "Provider-directed in-run quota retry PASS."
-            exit 0
-          fi
+          while true; do
+            LOG_FILE="$RUNNER_TEMP/dual-voice-generation-attempt-${attempt}.log"
+            if run_generation "$LOG_FILE"; then
+              if (( quota_windows_used > 0 )); then
+                echo "Provider-directed in-run quota recovery PASS after ${quota_windows_used} window(s)."
+              fi
+              exit 0
+            fi
 
-          echo "::error::Single provider-directed in-run retry exhausted; preserving checkpoint for a later workflow resume."
-          exit 1
+            if ! grep -Eq 'quota_exceeded|generate_content_free_tier_requests' "$LOG_FILE"; then
+              echo "::error::Generation failed for a non-quota reason; refusing in-run retry."
+              exit 1
+            fi
+
+            if (( quota_windows_used >= MAX_QUOTA_WINDOWS )); then
+              echo "::error::Bounded provider-directed quota windows exhausted (${MAX_QUOTA_WINDOWS}); preserving checkpoint for a later workflow resume."
+              exit 1
+            fi
+
+            RETRY_SECONDS="$(retry_delay "$LOG_FILE")" || {
+              echo "::error::Quota failure did not include a parseable provider retry delay; checkpointing instead."
+              exit 1
+            }
+
+            if (( total_quota_wait + RETRY_SECONDS > MAX_TOTAL_QUOTA_WAIT )); then
+              echo "::error::Provider-directed quota wait budget would exceed ${MAX_TOTAL_QUOTA_WAIT}s; preserving checkpoint."
+              exit 1
+            fi
+
+            quota_windows_used=$((quota_windows_used + 1))
+            total_quota_wait=$((total_quota_wait + RETRY_SECONDS))
+            attempt=$((attempt + 1))
+
+            echo "Gemini free-tier request window hit; waiting ${RETRY_SECONDS}s before in-run retry ${quota_windows_used}/${MAX_QUOTA_WINDOWS}. totalWait=${total_quota_wait}/${MAX_TOTAL_QUOTA_WAIT}s."
+            sleep "$RETRY_SECONDS"
+          done
 
       - name: Upload failed generation checkpoint
         if: failure()
