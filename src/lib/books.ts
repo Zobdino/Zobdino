@@ -70,7 +70,12 @@ export const books: readonly Book[] = [
     descriptionEn:
       "A book about the art of rethinking: questioning old assumptions, practicing intellectual humility, and becoming more willing to revise what we think we know.",
     coverUrl: "https://covers.openlibrary.org/b/isbn/9781984878106-L.jpg?default=false",
-    keyIdeas: [],
+    keyIdeas: [
+      "باورها را مثل فرضیه‌هایی ببین که باید با شواهد تازه دوباره آزموده شوند.",
+      "فروتنی فکری یعنی بتوانی احتمال خطای خودت را جدی بگیری بدون اینکه هویتت را به یک عقیده گره بزنی.",
+      "به‌جای دفاع از موضع، دنبال داده‌هایی بگرد که ممکن است آن را رد یا اصلاح کنند.",
+      "بازاندیشی یک عادت مداوم برای یادگیری بهتر و تصمیم‌گیری دقیق‌تر است.",
+    ],
   },
   {
     slug: "zero-to-one",
@@ -86,7 +91,12 @@ export const books: readonly Book[] = [
     descriptionEn:
       "A guide to building genuinely new things instead of copying existing models, focused on innovation, unique value creation, and the questions founders should ask about the future.",
     coverUrl: "https://covers.openlibrary.org/b/isbn/9780804139298-L.jpg?default=false",
-    keyIdeas: [],
+    keyIdeas: [
+      "پیشرفت جهشی از ساخت چیزی تازه می‌آید، نه فقط بهتر تکرار کردن مدل‌های موجود.",
+      "کسب‌وکار ماندگار باید ارزشی متمایز خلق کند که به‌سادگی قابل جایگزینی نباشد.",
+      "مزیت واقعی وقتی شکل می‌گیرد که فناوری، توزیع و مدل کسب‌وکار در یک سیستم منسجم کنار هم قرار بگیرند.",
+      "بنیان‌گذار باید درباره آینده یک فرض مشخص و قابل‌آزمون داشته باشد، نه صرفاً از روندهای رایج پیروی کند.",
+    ],
   },
   {
     slug: "leading-teams",
@@ -102,6 +112,11 @@ export const books: readonly Book[] = [
     descriptionEn:
       "J. Richard Hackman draws on research with real teams to show that excellent performance depends less on constant supervision and more on designing the right conditions for teamwork.",
     coverUrl: "https://covers.openlibrary.org/b/isbn/9781578513338-L.jpg?default=false",
-    keyIdeas: [],
+    keyIdeas: [
+      "کیفیت تیم بیشتر از مدیریت لحظه‌به‌لحظه، به طراحی شرایط اولیه درست وابسته است.",
+      "مرزهای روشن، جهت مشترک و ساختار مناسب، پایه‌های یک تیم واقعی و پایدار هستند.",
+      "حمایت سازمانی و دسترسی به منابع مناسب، احتمال عملکرد خوب تیم را به‌طور جدی افزایش می‌دهد.",
+      "رهبری مؤثر بیشتر به ایجاد و تقویت شرایط موفقیت تیم مربوط است تا کنترل دائمی اعضا.",
+    ],
   },
 ];
