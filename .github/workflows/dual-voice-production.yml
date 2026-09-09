@@ -154,36 +154,40 @@ jobs:
               <<<"$ARTIFACTS"
           )"
 
-          [[ "$MATCH_COUNT" == "1" ]] || {
-            echo "::error::Expected exactly one live resume artifact named $ARTIFACT_NAME; got $MATCH_COUNT."
+          (( MATCH_COUNT >= 1 )) || {
+            echo "::error::Expected at least one live resume artifact named $ARTIFACT_NAME; got $MATCH_COUNT."
             exit 1
           }
 
-          ARTIFACT_ID="$(
+          ARTIFACT_ROW="$(
             jq -r \
               --arg name "$ARTIFACT_NAME" \
-              '.artifacts[] | select(.name == $name and .expired == false) | .id' \
+              '[.artifacts[] | select(.name == $name and .expired == false)] | sort_by(.created_at, .id) | last | [.id,.digest,.created_at] | @tsv' \
               <<<"$ARTIFACTS"
           )"
-          ARTIFACT_DIGEST="$(
-            jq -r \
-              --arg name "$ARTIFACT_NAME" \
-              '.artifacts[] | select(.name == $name and .expired == false) | .digest' \
-              <<<"$ARTIFACTS"
-          )"
+          IFS=$'\t' read -r ARTIFACT_ID ARTIFACT_DIGEST ARTIFACT_CREATED_AT <<<"$ARTIFACT_ROW"
+
+          [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]] || {
+            echo "::error::Selected resume artifact ID is invalid."
+            exit 1
+          }
 
           [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || {
             echo "::error::Resume artifact digest is missing or invalid."
             exit 1
           }
 
+          echo "Resume artifact selection: name=$ARTIFACT_NAME live=$MATCH_COUNT selected=$ARTIFACT_ID created=$ARTIFACT_CREATED_AT"
+
           rm -rf .resume-artifact
           mkdir -p .resume-artifact
+          ARCHIVE="$RUNNER_TEMP/resume-artifact-$ARTIFACT_ID.zip"
 
-          gh run download "$RESUME_RUN_ID" \
-            --repo "$GITHUB_REPOSITORY" \
-            --name "$ARTIFACT_NAME" \
-            --dir .resume-artifact
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" \
+            > "$ARCHIVE"
+          unzip -q "$ARCHIVE" -d .resume-artifact
+          rm -f "$ARCHIVE"
 
           node scripts/dual-voice-resume-seed.mjs \
             --seed .resume-artifact \
@@ -206,11 +210,78 @@ jobs:
             RESUME_ARGS=(--resume-metadata .dual-voice/resume-index.json)
           fi
 
-          node scripts/dual-voice-render.mjs \
-            --mode generate \
-            --batch "${{ inputs.batch }}" \
-            --out .dual-voice \
-            "${RESUME_ARGS[@]}"
+          run_generation() {
+            local log_file="$1"
+            set +e
+            node scripts/dual-voice-render.mjs \
+              --mode generate \
+              --batch "${{ inputs.batch }}" \
+              --out .dual-voice \
+              "${RESUME_ARGS[@]}" \
+              2>&1 | tee "$log_file"
+            local node_status=${PIPESTATUS[0]}
+            set -e
+            return "$node_status"
+          }
+
+          retry_delay() {
+            local log_file="$1"
+            python - "$log_file" <<'PY'
+          import math
+          import re
+          import sys
+
+          text = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+          match = re.search(r'Please retry in\s+([0-9]+(?:\.[0-9]+)?)s', text, re.I)
+          if not match:
+              raise SystemExit(2)
+          seconds = float(match.group(1))
+          print(max(1, min(120, math.ceil(seconds) + 5)))
+          PY
+          }
+
+          MAX_QUOTA_WINDOWS=3
+          MAX_TOTAL_QUOTA_WAIT=300
+          quota_windows_used=0
+          total_quota_wait=0
+          attempt=1
+
+          while true; do
+            LOG_FILE="$RUNNER_TEMP/dual-voice-generation-attempt-${attempt}.log"
+            if run_generation "$LOG_FILE"; then
+              if (( quota_windows_used > 0 )); then
+                echo "Provider-directed in-run quota recovery PASS after ${quota_windows_used} window(s)."
+              fi
+              exit 0
+            fi
+
+            if ! grep -Eq 'quota_exceeded|generate_content_free_tier_requests' "$LOG_FILE"; then
+              echo "::error::Generation failed for a non-quota reason; refusing in-run retry."
+              exit 1
+            fi
+
+            if (( quota_windows_used >= MAX_QUOTA_WINDOWS )); then
+              echo "::error::Bounded provider-directed quota windows exhausted (${MAX_QUOTA_WINDOWS}); preserving checkpoint for a later workflow resume."
+              exit 1
+            fi
+
+            RETRY_SECONDS="$(retry_delay "$LOG_FILE")" || {
+              echo "::error::Quota failure did not include a parseable provider retry delay; checkpointing instead."
+              exit 1
+            }
+
+            if (( total_quota_wait + RETRY_SECONDS > MAX_TOTAL_QUOTA_WAIT )); then
+              echo "::error::Provider-directed quota wait budget would exceed ${MAX_TOTAL_QUOTA_WAIT}s; preserving checkpoint."
+              exit 1
+            fi
+
+            quota_windows_used=$((quota_windows_used + 1))
+            total_quota_wait=$((total_quota_wait + RETRY_SECONDS))
+            attempt=$((attempt + 1))
+
+            echo "Gemini free-tier request window hit; waiting ${RETRY_SECONDS}s before in-run retry ${quota_windows_used}/${MAX_QUOTA_WINDOWS}. totalWait=${total_quota_wait}/${MAX_TOTAL_QUOTA_WAIT}s."
+            sleep "$RETRY_SECONDS"
+          done
 
       - name: Upload failed generation checkpoint
         if: failure()
@@ -457,7 +528,6 @@ jobs:
               '.assets[] | [.bookSlug,.role,.providerVoice,.podcast.path,.podcast.sha256,.podcast.bytes] | @tsv' \
               .dual-voice/dual-voice-manifest.json
           )
-
 
       - name: Record batch evidence
         shell: bash

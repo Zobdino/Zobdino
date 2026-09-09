@@ -44,5 +44,7 @@ next-env.d.ts
 /audio-ingest.local.json
 /audio-inspection.local.json
 /.factory-output/
+/.master-book-batch/
+/.dual-voice-*-validate/
 /.cache/piper/
 /.venv/

@@ -36,6 +36,16 @@ export function resumeFromQuota(
     );
   }
 
+  const retryAfterSeconds = job.quotaPause.retryAfterSeconds;
+  if (retryAfterSeconds && retryAfterSeconds > 0) {
+    const pausedAtMs = Date.parse(job.quotaPause.pausedAt);
+    const nowMs = Date.parse(now);
+    const resumeAtMs = pausedAtMs + retryAfterSeconds * 1000;
+    if (Number.isFinite(pausedAtMs) && Number.isFinite(nowMs) && nowMs < resumeAtMs) {
+      throw new Error(`quota-resume-not-ready:${new Date(resumeAtMs).toISOString()}`);
+    }
+  }
+
   return {
     ...job,
     stage: job.quotaPause.resumeStage,
