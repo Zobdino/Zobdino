@@ -154,36 +154,40 @@ jobs:
               <<<"$ARTIFACTS"
           )"
 
-          [[ "$MATCH_COUNT" == "1" ]] || {
-            echo "::error::Expected exactly one live resume artifact named $ARTIFACT_NAME; got $MATCH_COUNT."
+          (( MATCH_COUNT >= 1 )) || {
+            echo "::error::Expected at least one live resume artifact named $ARTIFACT_NAME; got $MATCH_COUNT."
             exit 1
           }
 
-          ARTIFACT_ID="$(
+          ARTIFACT_ROW="$(
             jq -r \
               --arg name "$ARTIFACT_NAME" \
-              '.artifacts[] | select(.name == $name and .expired == false) | .id' \
+              '[.artifacts[] | select(.name == $name and .expired == false)] | sort_by(.created_at, .id) | last | [.id,.digest,.created_at] | @tsv' \
               <<<"$ARTIFACTS"
           )"
-          ARTIFACT_DIGEST="$(
-            jq -r \
-              --arg name "$ARTIFACT_NAME" \
-              '.artifacts[] | select(.name == $name and .expired == false) | .digest' \
-              <<<"$ARTIFACTS"
-          )"
+          IFS=$'\t' read -r ARTIFACT_ID ARTIFACT_DIGEST ARTIFACT_CREATED_AT <<<"$ARTIFACT_ROW"
+
+          [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]] || {
+            echo "::error::Selected resume artifact ID is invalid."
+            exit 1
+          }
 
           [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || {
             echo "::error::Resume artifact digest is missing or invalid."
             exit 1
           }
 
+          echo "Resume artifact selection: name=$ARTIFACT_NAME live=$MATCH_COUNT selected=$ARTIFACT_ID created=$ARTIFACT_CREATED_AT"
+
           rm -rf .resume-artifact
           mkdir -p .resume-artifact
+          ARCHIVE="$RUNNER_TEMP/resume-artifact-$ARTIFACT_ID.zip"
 
-          gh run download "$RESUME_RUN_ID" \
-            --repo "$GITHUB_REPOSITORY" \
-            --name "$ARTIFACT_NAME" \
-            --dir .resume-artifact
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" \
+            > "$ARCHIVE"
+          unzip -q "$ARCHIVE" -d .resume-artifact
+          rm -f "$ARCHIVE"
 
           node scripts/dual-voice-resume-seed.mjs \
             --seed .resume-artifact \
