@@ -18,7 +18,7 @@ export interface GeminiVoiceTransport {
     apiKey: string;
     body: unknown;
     headers: Record<string, string>;
-  }): Promise<{ status: number; text: string }>;
+  }): Promise<{ status: number; text: string; headers?: Record<string, string | undefined> }>;
 }
 
 export interface GeminiVoiceProviderOptions {
@@ -49,7 +49,7 @@ export class GeminiVoiceProvider implements VoiceProvider {
       generation_config: { speech_config: [{ voice: providerVoice }] },
     };
 
-    let response: { status: number; text: string };
+    let response: { status: number; text: string; headers?: Record<string, string | undefined> };
     try {
       response = await this.transport.send({
         url: ENDPOINT,
@@ -69,6 +69,7 @@ export class GeminiVoiceProvider implements VoiceProvider {
       throw new VoiceProviderError(`gemini-http-${response.status}`, {
         retryable: response.status === 429 || response.status >= 500,
         status: response.status,
+        ...quotaRetryMetadata(response),
       });
     }
 
@@ -132,10 +133,32 @@ export function buildIranianPersianDirectorPrompt(request: VoiceRequest): string
 }
 
 class FetchGeminiVoiceTransport implements GeminiVoiceTransport {
-  async send(input: { url: string; apiKey: string; body: unknown; headers: Record<string, string> }): Promise<{ status: number; text: string }> {
+  async send(input: { url: string; apiKey: string; body: unknown; headers: Record<string, string> }): Promise<{ status: number; text: string; headers: Record<string, string | undefined> }> {
     const response = await fetch(input.url, { method: "POST", headers: input.headers, body: JSON.stringify(input.body) });
-    return { status: response.status, text: await response.text() };
+    return {
+      status: response.status,
+      text: await response.text(),
+      headers: { "retry-after": response.headers.get("retry-after") ?? undefined },
+    };
   }
+}
+
+function quotaRetryMetadata(response: { text: string; headers?: Record<string, string | undefined> }) {
+  const retryAfter = response.headers?.["retry-after"]?.trim();
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds > 0) return { retryAfterSeconds: Math.ceil(seconds) };
+    const resetAtMs = Date.parse(retryAfter);
+    if (Number.isFinite(resetAtMs)) {
+      return {
+        retryAfterSeconds: Math.max(1, Math.ceil((resetAtMs - Date.now()) / 1000)),
+        resetAt: new Date(resetAtMs).toISOString(),
+      };
+    }
+  }
+  const match = response.text.match(/(?:retry(?:s+after)?|retryDelay)["']?s*[:=]s*["']?(d+(?:.d+)?)s?/iu);
+  if (match?.[1]) return { retryAfterSeconds: Math.max(1, Math.ceil(Number(match[1]))) };
+  return {};
 }
 
 type FoundAudio = { data: string; mimeType: string; sampleRate: number; channels: number };

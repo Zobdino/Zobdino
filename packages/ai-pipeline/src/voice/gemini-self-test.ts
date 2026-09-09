@@ -85,4 +85,19 @@ await assert.rejects(
 );
 assert.equal(terminalAttempts, 1);
 
+const quotaTransport: GeminiVoiceTransport = {
+  async send() {
+    return { status: 429, text: '{"error":{"retryDelay":"48s"}}', headers: { "retry-after": "48" } };
+  },
+};
+await assert.rejects(
+  () => new VoiceService(
+    new GeminiVoiceProvider({ apiKey: "offline-test-key", transport: quotaTransport }),
+    { maxAttempts: 1 },
+  ).narrate({ text: goldenText, voiceId: "sulafat", mode: "full", chapterId: "quota", language: "fa-IR" }),
+  (error: unknown) => error instanceof VoiceProviderError &&
+    error.status === 429 &&
+    error.retryAfterSeconds === 48,
+);
+
 console.log("Zobdino Gemini voice adapter: Sulafat/Schedar payload, parameterized L16 MIME, playable WAV normalization, retry classification and checksum path validated.");

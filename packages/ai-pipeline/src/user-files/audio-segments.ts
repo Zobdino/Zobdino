@@ -197,6 +197,8 @@ export async function runCanonicalAudioStage(
           provider: options.provider.id,
           operation: `tts:${stage}:${segment.id}`,
           resumeStage: stage,
+          retryAfterSeconds: error.retryAfterSeconds,
+          resetAt: error.resetAt,
           pausedAt: now,
         });
         await options.onCheckpoint?.(job);

@@ -41,12 +41,16 @@ export interface VoiceProvider {
 export class VoiceProviderError extends Error {
   readonly retryable: boolean;
   readonly status?: number;
+  readonly retryAfterSeconds?: number;
+  readonly resetAt?: string;
 
-  constructor(code: string, options: { retryable: boolean; status?: number; cause?: unknown }) {
+  constructor(code: string, options: { retryable: boolean; status?: number; retryAfterSeconds?: number; resetAt?: string; cause?: unknown }) {
     super(code, { cause: options.cause });
     this.name = "VoiceProviderError";
     this.retryable = options.retryable;
     this.status = options.status;
+    this.retryAfterSeconds = options.retryAfterSeconds;
+    this.resetAt = options.resetAt;
   }
 }
 

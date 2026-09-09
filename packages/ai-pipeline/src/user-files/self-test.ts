@@ -75,14 +75,14 @@ quotaJob = await runUserFileGeneration(quotaJob, {
 });
 assert.equal(quotaJob.stage, "quota-paused");
 assert.equal(quotaJob.quotaPause?.resumeStage, "summary-audio");
-quotaJob = resumeFromQuota(quotaJob);
+quotaJob = resumeFromQuota(quotaJob, new Date(Date.now() + 31000).toISOString());
 assert.equal(quotaJob.stage, "summary-audio");
 quotaJob = await runUserFileGeneration(quotaJob, { async run() { return { status: "verified" as const }; } });
 assert.equal(quotaJob.stage, "quality-check");
 assert.equal(finalizeUserFileJob(quotaJob).stage, "ready");
 
 assert.equal(canonicalVoiceId("sulafat"), "sulafat");
-assert.equal(canonicalVoiceId("schedar"), "iapetus");
+assert.equal(canonicalVoiceId("schedar"), "schedar");
 const narrationText = `${"این یک بخش آزمایشی برای روایت فارسی است. ".repeat(10)}\n\n${"این بخش دوم برای بررسی ادامه امن پردازش است. ".repeat(10)}`;
 const plannedSegments = planNarrationSegments(narrationText, 240, "test-audio");
 assert.ok(plannedSegments.length >= 2);
@@ -128,9 +128,9 @@ audioJob = await runCanonicalAudioStage(audioJob, {
     id: "offline-canonical-voice",
     async synthesize(request) {
       providerCalls += 1;
-      assert.equal(request.voiceId, "iapetus");
+      assert.equal(request.voiceId, "schedar");
       if (providerCalls === 2) {
-        throw new VoiceProviderError("offline-quota", { retryable: true, status: 429 });
+        throw new VoiceProviderError("offline-quota", { retryable: true, status: 429, retryAfterSeconds: 48 });
       }
       return voiceResult(request.chapterId);
     },
@@ -147,13 +147,15 @@ audioJob = await runCanonicalAudioStage(audioJob, {
 assert.equal(audioJob.stage, "quota-paused");
 assert.equal(audioJob.quotaPause?.resumeStage, "full-audio");
 assert.match(audioJob.quotaPause?.operation ?? "", /^tts:full-audio:/);
+assert.equal(audioJob.quotaPause?.retryAfterSeconds, 48);
+assert.throws(() => resumeFromQuota(audioJob, new Date(Date.now() + 47000).toISOString()), /quota-resume-not-ready/);
 const partialSegments = audioJob.assets.find((asset) => asset.kind === "full-audio")?.audioSegments ?? [];
 assert.equal(partialSegments.length, 1);
 assert.equal(partialSegments[0]?.provenance.providerVoice, "Iapetus");
 assert.ok(persistedCheckpoints >= 2);
 
 const firstVerifiedSegmentId = partialSegments[0]!.id;
-audioJob = resumeFromQuota(audioJob);
+audioJob = resumeFromQuota(audioJob, new Date(Date.now() + 49000).toISOString());
 let resumedCalls = 0;
 audioJob = await runCanonicalAudioStage(audioJob, {
   text: narrationText,
