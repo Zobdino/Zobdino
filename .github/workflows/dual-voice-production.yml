@@ -120,6 +120,7 @@ jobs:
           RUN_CONCLUSION="$(jq -r '.conclusion' <<<"$RUN_JSON")"
           RUN_PATH="$(jq -r '.path' <<<"$RUN_JSON")"
           SOURCE_SHA="$(jq -r '.head_sha' <<<"$RUN_JSON")"
+          SOURCE_BRANCH="$(jq -r '.head_branch' <<<"$RUN_JSON")"
 
           [[ "$RUN_EVENT" == "workflow_dispatch" ]] || {
             echo "::error::Resume source was not workflow_dispatch."
@@ -136,10 +137,28 @@ jobs:
             exit 1
           }
 
-          git merge-base --is-ancestor "$SOURCE_SHA" "$GITHUB_SHA" || {
-            echo "::error::Resume source SHA is not an ancestor of current source."
-            exit 1
-          }
+          if git merge-base --is-ancestor "$SOURCE_SHA" "$GITHUB_SHA"; then
+            echo "Resume source SHA is an ancestor of current source."
+          else
+            [[ "$SOURCE_BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || {
+              echo "::error::Resume source branch is invalid: $SOURCE_BRANCH"
+              exit 1
+            }
+
+            git fetch --no-tags --depth=1 origin "$SOURCE_BRANCH"
+            git cat-file -e "$SOURCE_SHA^{commit}"
+
+            if ! git diff --quiet "$SOURCE_SHA" "$GITHUB_SHA" -- \
+              scripts/dual-voice-render.mjs \
+              scripts/dual-voice-resume-seed.mjs \
+              scripts/master-book-batch.mjs \
+              src/content; then
+              echo "::error::Resume source is not an ancestor and its authoritative TTS plan differs from current source."
+              exit 1
+            fi
+
+            echo "Resume source accepted after squash merge: authoritative TTS plan is unchanged."
+          fi
 
           ARTIFACT_NAME="dual-voice-failed-${{ inputs.batch }}-$RESUME_RUN_ID"
           ARTIFACTS="$(
