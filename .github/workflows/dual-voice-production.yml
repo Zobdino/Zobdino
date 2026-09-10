@@ -259,8 +259,10 @@ jobs:
           PY
           }
 
-          MAX_QUOTA_WINDOWS=3
-          MAX_TOTAL_QUOTA_WAIT=300
+          # One provider-directed window only: preserve the checkpoint instead
+          # of repeatedly probing a free-tier quota within the same run.
+          MAX_QUOTA_WINDOWS=1
+          MAX_TOTAL_QUOTA_WAIT=120
           quota_windows_used=0
           total_quota_wait=0
           attempt=1
