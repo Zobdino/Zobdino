@@ -251,10 +251,18 @@ jobs:
           import sys
 
           text = open(sys.argv[1], encoding='utf-8', errors='replace').read()
-          match = re.search(r'Please retry in\s+([0-9]+(?:\.[0-9]+)?)s', text, re.I)
+          match = re.search(
+              r'Please retry in\s+([0-9]+(?:\.[0-9]+)?)(ms|s)\b',
+              text,
+              re.I,
+          )
           if not match:
               raise SystemExit(2)
-          seconds = float(match.group(1))
+
+          value = float(match.group(1))
+          unit = match.group(2).lower()
+          seconds = value / 1000 if unit == "ms" else value
+
           print(max(1, min(120, math.ceil(seconds) + 5)))
           PY
           }
