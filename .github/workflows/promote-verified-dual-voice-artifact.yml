@@ -1,0 +1,373 @@
+name: Promote Verified Dual-Voice Artifact
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+  issues: write
+
+concurrency:
+  group: zobdino-dual-voice-media-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+      SOURCE_RUN_ID: "34766429912"
+      SOURCE_SHA: "cb7d7a36e2d18741390d23c26c59f18a3b40f725"
+
+      ARTIFACT_ID: "10320854196"
+      ARTIFACT_NAME: "dual-voice-batch-b-34766429912"
+      ARTIFACT_DIGEST: "sha256:7e308cce11fb76fe8185e7bd8c7e788ac9b79ad9b83da6b734b5b9518bf12f70"
+
+      MEDIA_TAG: "media-dual-v0.2.0-beta.7"
+      TRACKING_ISSUE: "277"
+
+    steps:
+      - name: Checkout exact media source SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+
+      - name: Verify exact source run and artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RUN_JSON="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+
+          [[ "$(jq -r '.status' <<<"$RUN_JSON")" == "completed" ]] || {
+            echo "::error::Source run is not completed."
+            exit 1
+          }
+
+          [[ "$(jq -r '.head_sha' <<<"$RUN_JSON")" == "$SOURCE_SHA" ]] || {
+            echo "::error::Source run SHA mismatch."
+            exit 1
+          }
+
+          ARTIFACT_JSON="$(
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+          )"
+
+          [[ "$(jq -r '.expired' <<<"$ARTIFACT_JSON")" == "false" ]] || {
+            echo "::error::Artifact expired."
+            exit 1
+          }
+
+          [[ "$(jq -r '.name' <<<"$ARTIFACT_JSON")" == "$ARTIFACT_NAME" ]] || {
+            echo "::error::Artifact name mismatch."
+            exit 1
+          }
+
+          [[ "$(jq -r '.digest' <<<"$ARTIFACT_JSON")" == "$ARTIFACT_DIGEST" ]] || {
+            echo "::error::Artifact digest mismatch."
+            exit 1
+          }
+
+          echo "Source verification PASS"
+          echo "run=$SOURCE_RUN_ID"
+          echo "sha=$SOURCE_SHA"
+          echo "artifact=$ARTIFACT_ID"
+          echo "digest=$ARTIFACT_DIGEST"
+
+      - name: Verify beta.7 namespace is unused
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git ls-remote --tags origin "refs/tags/$MEDIA_TAG" | grep -q .; then
+            echo "::error::Remote tag already exists: $MEDIA_TAG"
+            exit 1
+          fi
+
+          if gh release view "$MEDIA_TAG" >/dev/null 2>&1; then
+            echo "::error::Release already exists: $MEDIA_TAG"
+            exit 1
+          fi
+
+          echo "$MEDIA_TAG is unused."
+
+      - name: Download verified artifact inside GitHub Actions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf .artifact-download .dual-voice
+          mkdir -p .artifact-download .dual-voice
+
+          ARCHIVE="$RUNNER_TEMP/dual-voice-$ARTIFACT_ID.zip"
+
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" \
+            > "$ARCHIVE"
+
+          test -s "$ARCHIVE" || {
+            echo "::error::Artifact archive is empty."
+            exit 1
+          }
+
+          unzip -q "$ARCHIVE" -d .artifact-download
+          rm -f "$ARCHIVE"
+
+          MANIFEST="$(
+            find .artifact-download \
+              -type f \
+              -name dual-voice-manifest.json \
+              -print \
+              -quit
+          )"
+
+          [[ -n "$MANIFEST" ]] || {
+            echo "::error::dual-voice-manifest.json not found."
+            exit 1
+          }
+
+          ROOT="$(dirname "$MANIFEST")"
+          cp -a "$ROOT/." .dual-voice/
+
+          test -s .dual-voice/dual-voice-manifest.json
+
+      - name: Verify exact Batch B media
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MANIFEST=".dual-voice/dual-voice-manifest.json"
+
+          COUNT="$(jq '.assets | length' "$MANIFEST")"
+
+          [[ "$COUNT" == "4" ]] || {
+            echo "::error::Expected exactly 4 Batch B assets; found $COUNT."
+            exit 1
+          }
+
+          FOUND="$(
+            jq -r \
+              '.assets[] | [.bookSlug,.providerVoice] | @tsv' \
+              "$MANIFEST" |
+            sort
+          )"
+
+          REQUIRED=$'think-again\tSchedar\nthink-again\tSulafat\nzero-to-one\tSchedar\nzero-to-one\tSulafat'
+
+          [[ "$FOUND" == "$REQUIRED" ]] || {
+            echo "::error::Unexpected Batch B book/voice inventory."
+            printf 'Found:\n%s\n' "$FOUND"
+            exit 1
+          }
+
+          while IFS=$'\t' read -r SLUG ROLE VOICE PODCAST LOCAL_SHA LOCAL_BYTES; do
+            FILE=".dual-voice/$PODCAST"
+
+            test -s "$FILE" || {
+              echo "::error::Missing podcast: $FILE"
+              exit 1
+            }
+
+            ACTUAL_SHA="$(sha256sum "$FILE" | awk '{print $1}')"
+            ACTUAL_BYTES="$(stat -c %s "$FILE")"
+
+            [[ "$ACTUAL_SHA" == "$LOCAL_SHA" ]] || {
+              echo "::error::$SLUG/$VOICE SHA mismatch."
+              exit 1
+            }
+
+            [[ "$ACTUAL_BYTES" == "$LOCAL_BYTES" ]] || {
+              echo "::error::$SLUG/$VOICE byte mismatch."
+              exit 1
+            }
+
+            echo \
+              "Local PASS: $SLUG / $ROLE / $VOICE / sha256:$LOCAL_SHA / $LOCAL_BYTES"
+          done < <(
+            jq -r \
+              '.assets[] | [.bookSlug,.role,.providerVoice,.podcast.path,.podcast.sha256,.podcast.bytes] | @tsv' \
+              "$MANIFEST"
+          )
+
+      - name: Create immutable annotated beta.7 tag and prerelease
+        id: media
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ "$GITHUB_SHA" == "$SOURCE_SHA" ]] || {
+            echo "::error::Checkout SHA mismatch."
+            exit 1
+          }
+
+          git config user.name "zobdino-content-bot"
+          git config user.email "actions@users.noreply.github.com"
+
+          git tag -a \
+            "$MEDIA_TAG" \
+            "$SOURCE_SHA" \
+            -m "Zobdino dual-voice media — Sulafat + Schedar"
+
+          git push origin "$MEDIA_TAG"
+
+          TYPE="$(git cat-file -t "refs/tags/$MEDIA_TAG")"
+          TARGET="$(git rev-list -n 1 "refs/tags/$MEDIA_TAG")"
+
+          [[ "$TYPE" == "tag" ]] || {
+            echo "::error::$MEDIA_TAG is not an annotated tag."
+            exit 1
+          }
+
+          [[ "$TARGET" == "$SOURCE_SHA" ]] || {
+            echo "::error::$MEDIA_TAG target mismatch."
+            exit 1
+          }
+
+          gh release create "$MEDIA_TAG" \
+            --verify-tag \
+            --title "Zobdino Dual Voice Media — Sulafat + Schedar" \
+            --notes "Immutable dual-voice media promoted from verified artifact $ARTIFACT_ID generated by workflow run $SOURCE_RUN_ID from exact source SHA $SOURCE_SHA. No TTS regeneration was performed. Product wiring and production deployment remain separate QA-gated steps." \
+            --prerelease
+
+          URL="$(
+            gh release view "$MEDIA_TAG" \
+              --json url \
+              --jq .url
+          )"
+
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Upload and verify immutable podcast assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          UPLOAD_DIR="$RUNNER_TEMP/dual-voice-release-assets"
+          mkdir -p "$UPLOAD_DIR"
+
+          while IFS=$'\t' read -r SLUG ROLE VOICE PODCAST LOCAL_SHA LOCAL_BYTES; do
+            VOICE_SLUG="$(tr '[:upper:]' '[:lower:]' <<<"$VOICE")"
+            ASSET_NAME="$SLUG-$VOICE_SLUG-v1.mp3"
+
+            FILE=".dual-voice/$PODCAST"
+            UPLOAD_FILE="$UPLOAD_DIR/$ASSET_NAME"
+
+            if gh api \
+              "repos/$GITHUB_REPOSITORY/releases/tags/$MEDIA_TAG" \
+              --jq '.assets[].name' |
+              grep -Fxq "$ASSET_NAME"
+            then
+              echo "::error::Asset already exists: $ASSET_NAME"
+              exit 1
+            fi
+
+            cp "$FILE" "$UPLOAD_FILE"
+
+            UPLOAD_SHA="$(sha256sum "$UPLOAD_FILE" | awk '{print $1}')"
+            UPLOAD_BYTES="$(stat -c %s "$UPLOAD_FILE")"
+
+            [[ "$UPLOAD_SHA" == "$LOCAL_SHA" ]] || exit 1
+            [[ "$UPLOAD_BYTES" == "$LOCAL_BYTES" ]] || exit 1
+
+            gh release upload \
+              "$MEDIA_TAG" \
+              "$UPLOAD_FILE"
+
+            ROW="$(
+              gh api \
+                "repos/$GITHUB_REPOSITORY/releases/tags/$MEDIA_TAG" \
+                --jq \
+                ".assets[] | select(.name == \"$ASSET_NAME\") | [.size,.digest,.browser_download_url] | @tsv"
+            )"
+
+            IFS=$'\t' read -r REMOTE_BYTES REMOTE_DIGEST REMOTE_URL <<<"$ROW"
+
+            [[ "$REMOTE_BYTES" == "$LOCAL_BYTES" ]] || {
+              echo "::error::$ASSET_NAME remote bytes mismatch."
+              exit 1
+            }
+
+            [[ "$REMOTE_DIGEST" == "sha256:$LOCAL_SHA" ]] || {
+              echo "::error::$ASSET_NAME remote digest mismatch."
+              exit 1
+            }
+
+            TMP="$(mktemp)"
+
+            curl \
+              --fail \
+              --location \
+              --silent \
+              --show-error \
+              "$REMOTE_URL" \
+              --output "$TMP"
+
+            DOWNLOADED_SHA="$(sha256sum "$TMP" | awk '{print $1}')"
+            DOWNLOADED_BYTES="$(stat -c %s "$TMP")"
+
+            rm -f "$TMP"
+
+            [[ "$DOWNLOADED_SHA" == "$LOCAL_SHA" ]] || {
+              echo "::error::$ASSET_NAME download-back SHA mismatch."
+              exit 1
+            }
+
+            [[ "$DOWNLOADED_BYTES" == "$LOCAL_BYTES" ]] || {
+              echo "::error::$ASSET_NAME download-back byte mismatch."
+              exit 1
+            }
+
+            echo \
+              "Media PASS: $ASSET_NAME | sha256:$LOCAL_SHA | $LOCAL_BYTES bytes"
+          done < <(
+            jq -r \
+              '.assets[] | [.bookSlug,.role,.providerVoice,.podcast.path,.podcast.sha256,.podcast.bytes] | @tsv' \
+              .dual-voice/dual-voice-manifest.json
+          )
+
+      - name: Final immutable release verification
+        shell: bash
+        env:
+          MEDIA_URL: ${{ steps.media.outputs.url }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_JSON="$(
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$MEDIA_TAG"
+          )"
+
+          [[ "$(jq -r '.prerelease' <<<"$RELEASE_JSON")" == "true" ]] || {
+            echo "::error::Release is not prerelease."
+            exit 1
+          }
+
+          [[ "$(jq -r '.draft' <<<"$RELEASE_JSON")" == "false" ]] || {
+            echo "::error::Release unexpectedly draft."
+            exit 1
+          }
+
+          [[ "$(jq '.assets | length' <<<"$RELEASE_JSON")" == "4" ]] || {
+            echo "::error::Release must contain exactly 4 assets."
+            exit 1
+          }
+
+          git fetch origin "refs/tags/$MEDIA_TAG:refs/tags/$MEDIA_TAG" --force
+
+          TYPE="$(git cat-file -t "refs/tags/$MEDIA_TAG")"
+          TARGET="$(git rev-list -n 1 "refs/tags/$MEDIA_TAG")"
+
+          [[ "$TYPE" == "tag" ]] || exit 1
+          [[ "$TARGET" == "$SOURCE_SHA" ]] || exit 1
+
+          gh issue comment "$TRACKING_ISSUE" \
+            --body "[beta.7 promotion] PASS — verified artifact $ARTIFACT_ID from run $SOURCE_RUN_ID promoted with ZERO new TTS requests. Source SHA: $SOURCE_SHA | tag: $MEDIA_TAG | prerelease: $MEDIA_URL | 4/4 assets passed local SHA/bytes, GitHub digest/bytes, and download-back verification. Production/deploy/product wiring: untouched. Workflow: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+          echo
+          echo "BETA.7 PROMOTION PASS"
+          echo "Release: $MEDIA_URL"
+          echo "Production: UNTOUCHED"
