@@ -65,3 +65,69 @@ export const DEEP_WORK_CANONICAL_AUDIO = {
     voiceProfile: "schedar-v1",
   } satisfies EpisodeAudioAsset,
 } as const;
+
+/**
+ * Immutable, QA-passed Think Again media released as media-dual-v0.2.0-beta.7.
+ * Source generation run: 34766429912 at cb7d7a36e2d18741390d23c26c59f18a3b40f725.
+ */
+export const THINK_AGAIN_CANONICAL_AUDIO = {
+  "sulafat-v1": {
+    status: "ready",
+    objectKey: "media-dual-v0.2.0-beta.7/think-again-sulafat-v1.mp3",
+    publicUrl:
+      "https://github.com/Zobdino/Zobdino/releases/download/media-dual-v0.2.0-beta.7/think-again-sulafat-v1.mp3",
+    mimeType: "audio/mpeg",
+    durationSeconds: 1052.36898,
+    downloadable: false,
+    sha256:
+      "64f8255d42f9c2d3c6d4ee2974a839e00edf75ae801eec5cee92bbc79a6f41e5",
+    bytes: 16838365,
+    voiceProfile: "sulafat-v1",
+  } satisfies EpisodeAudioAsset,
+  "schedar-v1": {
+    status: "ready",
+    objectKey: "media-dual-v0.2.0-beta.7/think-again-schedar-v1.mp3",
+    publicUrl:
+      "https://github.com/Zobdino/Zobdino/releases/download/media-dual-v0.2.0-beta.7/think-again-schedar-v1.mp3",
+    mimeType: "audio/mpeg",
+    durationSeconds: 880.692245,
+    downloadable: false,
+    sha256:
+      "1777a9e2c35e0f5f06ad00f298da290a08bdb7a12849cfa6bfef26873eb4a439",
+    bytes: 14091537,
+    voiceProfile: "schedar-v1",
+  } satisfies EpisodeAudioAsset,
+} as const;
+
+/**
+ * Immutable, QA-passed Zero to One media released as media-dual-v0.2.0-beta.7.
+ * Source generation run: 34766429912 at cb7d7a36e2d18741390d23c26c59f18a3b40f725.
+ */
+export const ZERO_TO_ONE_CANONICAL_AUDIO = {
+  "sulafat-v1": {
+    status: "ready",
+    objectKey: "media-dual-v0.2.0-beta.7/zero-to-one-sulafat-v1.mp3",
+    publicUrl:
+      "https://github.com/Zobdino/Zobdino/releases/download/media-dual-v0.2.0-beta.7/zero-to-one-sulafat-v1.mp3",
+    mimeType: "audio/mpeg",
+    durationSeconds: 1045.524898,
+    downloadable: false,
+    sha256:
+      "d465963dd3ca14573b896b9172a71b4ef30aa3874e40c8dc1d52b0d6dde9eecf",
+    bytes: 16728860,
+    voiceProfile: "sulafat-v1",
+  } satisfies EpisodeAudioAsset,
+  "schedar-v1": {
+    status: "ready",
+    objectKey: "media-dual-v0.2.0-beta.7/zero-to-one-schedar-v1.mp3",
+    publicUrl:
+      "https://github.com/Zobdino/Zobdino/releases/download/media-dual-v0.2.0-beta.7/zero-to-one-schedar-v1.mp3",
+    mimeType: "audio/mpeg",
+    durationSeconds: 842.579592,
+    downloadable: false,
+    sha256:
+      "9e9f8049de4920af20ef0a1a9984453ec92a79e4acad4aa01de6a5ab86feb2fb",
+    bytes: 13481735,
+    voiceProfile: "schedar-v1",
+  } satisfies EpisodeAudioAsset,
+} as const;
