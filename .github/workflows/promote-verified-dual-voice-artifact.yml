@@ -200,8 +200,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          [[ "$GITHUB_SHA" == "$SOURCE_SHA" ]] || {
-            echo "::error::Checkout SHA mismatch."
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+
+          [[ "$CHECKED_OUT_SHA" == "$SOURCE_SHA" ]] || {
+            echo "::error::Checked-out source SHA $CHECKED_OUT_SHA != expected $SOURCE_SHA"
             exit 1
           }
 
