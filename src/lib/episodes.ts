@@ -3,6 +3,8 @@ import rawEpisodes from "@/content/episodes.json";
 import {
   ATOMIC_HABITS_CANONICAL_AUDIO,
   DEEP_WORK_CANONICAL_AUDIO,
+  THINK_AGAIN_CANONICAL_AUDIO,
+  ZERO_TO_ONE_CANONICAL_AUDIO,
 } from "@/lib/canonical-audio";
 import type { VoiceProfileId } from "@/lib/voices";
 
@@ -45,6 +47,8 @@ const atomicHabitsBase = baseEpisodes.find(
   (episode) => episode.bookSlug === "atomic-habits",
 );
 const deepWorkBase = baseEpisodes.find((episode) => episode.bookSlug === "deep-work");
+const thinkAgainBase = baseEpisodes.find((episode) => episode.bookSlug === "think-again");
+const zeroToOneBase = baseEpisodes.find((episode) => episode.bookSlug === "zero-to-one");
 
 function canonicalizeZobdinoTranscript(transcript: string) {
   return transcript
@@ -79,6 +83,16 @@ const canonicalDeepWorkEpisodes = buildCanonicalVoiceEpisodes(
   DEEP_WORK_CANONICAL_AUDIO,
   "deep-work",
 );
+const canonicalThinkAgainEpisodes = buildCanonicalVoiceEpisodes(
+  thinkAgainBase,
+  THINK_AGAIN_CANONICAL_AUDIO,
+  "think-again",
+);
+const canonicalZeroToOneEpisodes = buildCanonicalVoiceEpisodes(
+  zeroToOneBase,
+  ZERO_TO_ONE_CANONICAL_AUDIO,
+  "zero-to-one",
+);
 
 /**
  * Keeps the legacy catalog intact while overlaying verified canonical variants.
@@ -88,4 +102,6 @@ export const episodes = [
   ...baseEpisodes,
   ...canonicalAtomicHabitsEpisodes,
   ...canonicalDeepWorkEpisodes,
+  ...canonicalThinkAgainEpisodes,
+  ...canonicalZeroToOneEpisodes,
 ] as readonly Episode[];
