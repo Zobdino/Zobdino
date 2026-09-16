@@ -9,6 +9,7 @@ import TranscriptPanel from "@/components/player/TranscriptPanel";
 import { usePlayer } from "@/components/player/PlayerProvider";
 import { getEpisodeVoiceLabelFa, isProductionAudio } from "@/lib/audio";
 import type { Episode } from "@/lib/episodes";
+import { getVoiceSwitchContinuity } from "@/lib/voice-switch-continuity";
 
 function voiceLabelEn(episode: Episode) {
   const profile = episode.audio.voiceProfile;
@@ -20,7 +21,7 @@ function voiceLabelEn(episode: Episode) {
 export default function BookAudioExperience({ episodes }: { episodes: readonly Episode[] }) {
   const { locale } = useLocale();
   const fa = locale === "fa";
-  const { activeEpisode, currentTime, activateEpisode } = usePlayer();
+  const { activeEpisode, currentTime, isPlaying, activateEpisode } = usePlayer();
   const playableEpisodes = useMemo(() => episodes.filter((episode) => episode.audio.status === "ready"), [episodes]);
   const canonicalEpisodes = useMemo(() => playableEpisodes.filter((episode) => isProductionAudio(episode.audio)), [playableEpisodes]);
   const options = canonicalEpisodes.length > 0 ? canonicalEpisodes : playableEpisodes;
@@ -34,7 +35,13 @@ export default function BookAudioExperience({ episodes }: { episodes: readonly E
     const activeIsCurrentBookVariant = options.some((option) => option.id === activeEpisode?.id);
     setSelectedId(episode.id);
     if (activeIsCurrentBookVariant) {
-      activateEpisode(episode.id, { autoplay: false, startAt: currentTime });
+      activateEpisode(
+        episode.id,
+        getVoiceSwitchContinuity({
+          currentTime,
+          isPlaying,
+        }),
+      );
     }
   };
 
