@@ -14,6 +14,11 @@ import {
 
 import { books, type Book } from "@/lib/books";
 import { resolveEpisodeAudioUrl } from "@/lib/audio";
+import {
+  createPendingAudioTransition,
+  isPendingAudioTransitionMatch,
+  type PendingAudioTransition,
+} from "@/lib/voice-switch-continuity";
 import { episodes, type Episode } from "@/lib/episodes";
 import {
   addListeningBookmark,
@@ -90,8 +95,8 @@ export default function PlayerProvider({
   children: ReactNode;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const pendingStartRef = useRef<number | null>(null);
-  const pendingAutoplayRef = useRef(false);
+  const pendingTransitionRef =
+    useRef<PendingAudioTransition | null>(null);
   const lastPersistedSecondRef = useRef(-1);
   const sleepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -166,8 +171,17 @@ export default function PlayerProvider({
             : 0;
 
       const autoplay = options.autoplay !== false;
-      pendingStartRef.current = startAt;
-      pendingAutoplayRef.current = autoplay;
+      const targetSourceUrl = resolveEpisodeAudioUrl(episode.audio);
+
+      pendingTransitionRef.current = targetSourceUrl
+        ? createPendingAudioTransition({
+            episodeId: episode.id,
+            sourceUrl: targetSourceUrl,
+            startAt,
+            autoplay,
+          })
+        : null;
+
       lastPersistedSecondRef.current = -1;
       setErrorMessage(null);
 
@@ -180,6 +194,7 @@ export default function PlayerProvider({
             ? audio.duration
             : episode.audio.durationSeconds;
 
+        pendingTransitionRef.current = null;
         audio.currentTime = clampToDuration(startAt, effectiveDuration);
         setCurrentTime(audio.currentTime);
         audio.playbackRate = listening.settings.playbackRate;
@@ -554,10 +569,24 @@ export default function PlayerProvider({
               ? audio.duration
               : activeEpisode.audio.durationSeconds;
 
+          const currentSourceUrl =
+            audio.currentSrc || sourceUrl || null;
+
+          const transition = pendingTransitionRef.current;
+          const transitionMatches =
+            isPendingAudioTransitionMatch({
+              transition,
+              episodeId: activeEpisode.id,
+              sourceUrl: currentSourceUrl,
+            });
+
           const stored = listening.progress[activeEpisode.id];
           const requestedStart =
-            pendingStartRef.current ??
-            (stored && !stored.completed ? stored.currentTime : 0);
+            transitionMatches && transition
+              ? transition.startAt
+              : stored && !stored.completed
+                ? stored.currentTime
+                : 0;
 
           audio.currentTime = clampToDuration(
             requestedStart,
@@ -568,9 +597,14 @@ export default function PlayerProvider({
           setDuration(nextDuration);
           setCurrentTime(audio.currentTime);
 
-          const shouldPlay = pendingAutoplayRef.current;
-          pendingStartRef.current = null;
-          pendingAutoplayRef.current = false;
+          const shouldPlay =
+            transitionMatches && transition
+              ? transition.autoplay
+              : false;
+
+          if (transitionMatches) {
+            pendingTransitionRef.current = null;
+          }
 
           if (shouldPlay) {
             setIsBuffering(true);
@@ -645,7 +679,11 @@ export default function PlayerProvider({
         onPause={() => {
           setIsPlaying(false);
           setIsBuffering(false);
-          persistExactProgress(false);
+
+          if (!pendingTransitionRef.current) {
+            persistExactProgress(false);
+          }
+
           if ("mediaSession" in navigator) {
             navigator.mediaSession.playbackState = "paused";
           }
