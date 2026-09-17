@@ -98,6 +98,7 @@ export default function PlayerProvider({
   const loadedSourceRef = useRef<string | null>(null);
   const pendingTransitionRef =
     useRef<PendingAudioTransition | null>(null);
+  const pendingAutoplayRef = useRef(false);
   const lastPersistedSecondRef = useRef(-1);
   const sleepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -630,16 +631,7 @@ export default function PlayerProvider({
             pendingTransitionRef.current = null;
           }
 
-          if (shouldPlay) {
-            setIsBuffering(true);
-            void audio.play().catch(() => {
-              setIsBuffering(false);
-              setIsPlaying(false);
-              setErrorMessage(
-                "پخش صدا در این مرورگر شروع نشد. دوباره تلاش کنید.",
-              );
-            });
-          }
+          pendingAutoplayRef.current = shouldPlay;
         }}
         onTimeUpdate={(event) => {
           if (!activeEpisode) return;
@@ -713,7 +705,20 @@ export default function PlayerProvider({
           }
         }}
         onWaiting={() => setIsBuffering(true)}
-        onCanPlay={() => setIsBuffering(false)}
+        onCanPlay={(event) => {
+          setIsBuffering(false);
+
+          if (!pendingAutoplayRef.current) return;
+
+          pendingAutoplayRef.current = false;
+
+          void event.currentTarget.play().catch(() => {
+            setIsPlaying(false);
+            setErrorMessage(
+              "پخش صدا در این مرورگر شروع نشد. دوباره تلاش کنید.",
+            );
+          });
+        }}
         onEnded={() => {
           if (!activeEpisode) return;
 
