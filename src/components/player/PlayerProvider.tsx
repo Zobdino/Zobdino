@@ -95,6 +95,7 @@ export default function PlayerProvider({
   children: ReactNode;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const loadedSourceRef = useRef<string | null>(null);
   const pendingTransitionRef =
     useRef<PendingAudioTransition | null>(null);
   const lastPersistedSecondRef = useRef(-1);
@@ -120,6 +121,26 @@ export default function PlayerProvider({
   const sourceUrl = activeEpisode
     ? resolveEpisodeAudioUrl(activeEpisode.audio)
     : null;
+
+  useEffect(() => {
+    const audio = audioRef.current;
+
+    if (!audio || !sourceUrl) {
+      loadedSourceRef.current = sourceUrl;
+      return;
+    }
+
+    if (loadedSourceRef.current === sourceUrl) {
+      return;
+    }
+
+    loadedSourceRef.current = sourceUrl;
+
+    // Chromium can remain in HAVE_NOTHING after React switches the
+    // canonical audio source. Explicitly restart resource selection;
+    // onLoadedMetadata restores the pending timestamp/playback state.
+    audio.load();
+  }, [sourceUrl]);
 
   const activeIndex = activeEpisode
     ? READY_EPISODES.findIndex((episode) => episode.id === activeEpisode.id)
