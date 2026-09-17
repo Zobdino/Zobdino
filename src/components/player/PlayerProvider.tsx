@@ -691,7 +691,15 @@ export default function PlayerProvider({
             navigator.mediaSession.playbackState = "playing";
           }
         }}
-        onPlaying={() => {
+        onPlaying={(event) => {
+          const audio = event.currentTarget;
+
+          if (pendingResumeTimeRef.current !== null) {
+            audio.currentTime = pendingResumeTimeRef.current;
+            setCurrentTime(audio.currentTime);
+            pendingResumeTimeRef.current = null;
+          }
+
           setIsPlaying(true);
           setIsBuffering(false);
         }}
@@ -712,12 +720,6 @@ export default function PlayerProvider({
           setIsBuffering(false);
 
           const audio = event.currentTarget;
-
-          if (pendingResumeTimeRef.current !== null) {
-            audio.currentTime = pendingResumeTimeRef.current;
-            setCurrentTime(audio.currentTime);
-            pendingResumeTimeRef.current = null;
-          }
 
           if (!pendingAutoplayRef.current) return;
 
