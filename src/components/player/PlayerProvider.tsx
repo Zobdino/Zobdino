@@ -99,6 +99,7 @@ export default function PlayerProvider({
   const pendingTransitionRef =
     useRef<PendingAudioTransition | null>(null);
   const pendingAutoplayRef = useRef(false);
+  const pendingResumeTimeRef = useRef<number | null>(null);
   const lastPersistedSecondRef = useRef(-1);
   const sleepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -617,6 +618,8 @@ export default function PlayerProvider({
             requestedStart,
             nextDuration,
           );
+
+          pendingResumeTimeRef.current = audio.currentTime;
           audio.playbackRate = listening.settings.playbackRate;
 
           setDuration(nextDuration);
@@ -707,6 +710,14 @@ export default function PlayerProvider({
         onWaiting={() => setIsBuffering(true)}
         onCanPlay={(event) => {
           setIsBuffering(false);
+
+          const audio = event.currentTarget;
+
+          if (pendingResumeTimeRef.current !== null) {
+            audio.currentTime = pendingResumeTimeRef.current;
+            setCurrentTime(audio.currentTime);
+            pendingResumeTimeRef.current = null;
+          }
 
           if (!pendingAutoplayRef.current) return;
 
