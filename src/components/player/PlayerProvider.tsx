@@ -593,12 +593,15 @@ export default function PlayerProvider({
           const currentSourceUrl =
             audio.currentSrc || sourceUrl || null;
 
+          const effectiveTransitionSource =
+            currentSourceUrl || sourceUrl;
+
           const transition = pendingTransitionRef.current;
           const transitionMatches =
             isPendingAudioTransitionMatch({
               transition,
               episodeId: activeEpisode.id,
-              sourceUrl: currentSourceUrl,
+              sourceUrl: effectiveTransitionSource,
             });
 
           const stored = listening.progress[activeEpisode.id];
