@@ -14,6 +14,11 @@ import {
 
 import { books, type Book } from "@/lib/books";
 import { resolveEpisodeAudioUrl } from "@/lib/audio";
+import {
+  createPendingAudioTransition,
+  isPendingAudioTransitionMatch,
+  type PendingAudioTransition,
+} from "@/lib/voice-switch-continuity";
 import { episodes, type Episode } from "@/lib/episodes";
 import {
   addListeningBookmark,
@@ -90,8 +95,12 @@ export default function PlayerProvider({
   children: ReactNode;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const pendingStartRef = useRef<number | null>(null);
+  const loadedSourceRef = useRef<string | null>(null);
+  const pendingTransitionRef =
+    useRef<PendingAudioTransition | null>(null);
   const pendingAutoplayRef = useRef(false);
+  const pendingResumeTimeRef = useRef<number | null>(null);
+  const resumeAppliedRef = useRef(false);
   const lastPersistedSecondRef = useRef(-1);
   const sleepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -115,6 +124,26 @@ export default function PlayerProvider({
   const sourceUrl = activeEpisode
     ? resolveEpisodeAudioUrl(activeEpisode.audio)
     : null;
+
+  useEffect(() => {
+    const audio = audioRef.current;
+
+    if (!audio || !sourceUrl) {
+      loadedSourceRef.current = sourceUrl;
+      return;
+    }
+
+    if (loadedSourceRef.current === sourceUrl) {
+      return;
+    }
+
+    loadedSourceRef.current = sourceUrl;
+
+    // Chromium can remain in HAVE_NOTHING after React switches the
+    // canonical audio source. Explicitly restart resource selection;
+    // onLoadedMetadata restores the pending timestamp/playback state.
+    audio.load();
+  }, [sourceUrl]);
 
   const activeIndex = activeEpisode
     ? READY_EPISODES.findIndex((episode) => episode.id === activeEpisode.id)
@@ -166,8 +195,17 @@ export default function PlayerProvider({
             : 0;
 
       const autoplay = options.autoplay !== false;
-      pendingStartRef.current = startAt;
-      pendingAutoplayRef.current = autoplay;
+      const targetSourceUrl = resolveEpisodeAudioUrl(episode.audio);
+
+      pendingTransitionRef.current = targetSourceUrl
+        ? createPendingAudioTransition({
+            episodeId: episode.id,
+            sourceUrl: targetSourceUrl,
+            startAt,
+            autoplay,
+          })
+        : null;
+
       lastPersistedSecondRef.current = -1;
       setErrorMessage(null);
 
@@ -180,6 +218,7 @@ export default function PlayerProvider({
             ? audio.duration
             : episode.audio.durationSeconds;
 
+        pendingTransitionRef.current = null;
         audio.currentTime = clampToDuration(startAt, effectiveDuration);
         setCurrentTime(audio.currentTime);
         audio.playbackRate = listening.settings.playbackRate;
@@ -554,39 +593,65 @@ export default function PlayerProvider({
               ? audio.duration
               : activeEpisode.audio.durationSeconds;
 
+          const currentSourceUrl =
+            audio.currentSrc || sourceUrl || null;
+
+          const effectiveTransitionSource =
+            currentSourceUrl || sourceUrl;
+
+          const transition = pendingTransitionRef.current;
+          const transitionMatches =
+            isPendingAudioTransitionMatch({
+              transition,
+              episodeId: activeEpisode.id,
+              sourceUrl: effectiveTransitionSource,
+            });
+
           const stored = listening.progress[activeEpisode.id];
           const requestedStart =
-            pendingStartRef.current ??
-            (stored && !stored.completed ? stored.currentTime : 0);
+            transitionMatches && transition
+              ? transition.startAt
+              : stored && !stored.completed
+                ? stored.currentTime
+                : 0;
 
           audio.currentTime = clampToDuration(
             requestedStart,
             nextDuration,
           );
+
+          pendingResumeTimeRef.current = audio.currentTime;
+          resumeAppliedRef.current = false;
+
           audio.playbackRate = listening.settings.playbackRate;
 
           setDuration(nextDuration);
           setCurrentTime(audio.currentTime);
 
-          const shouldPlay = pendingAutoplayRef.current;
-          pendingStartRef.current = null;
-          pendingAutoplayRef.current = false;
+          const shouldPlay =
+            transitionMatches && transition
+              ? transition.autoplay
+              : false;
 
-          if (shouldPlay) {
-            setIsBuffering(true);
-            void audio.play().catch(() => {
-              setIsBuffering(false);
-              setIsPlaying(false);
-              setErrorMessage(
-                "پخش صدا در این مرورگر شروع نشد. دوباره تلاش کنید.",
-              );
-            });
+          if (transitionMatches) {
+            pendingTransitionRef.current = null;
           }
+
+          pendingAutoplayRef.current = shouldPlay;
         }}
         onTimeUpdate={(event) => {
           if (!activeEpisode) return;
 
           const audio = event.currentTarget;
+          if (
+            pendingResumeTimeRef.current !== null &&
+            !resumeAppliedRef.current
+          ) {
+            audio.currentTime = pendingResumeTimeRef.current;
+            resumeAppliedRef.current = true;
+            setCurrentTime(audio.currentTime);
+          }
+
           const nextTime = audio.currentTime;
           const nextDuration =
             Number.isFinite(audio.duration) && audio.duration > 0
@@ -638,20 +703,47 @@ export default function PlayerProvider({
             navigator.mediaSession.playbackState = "playing";
           }
         }}
-        onPlaying={() => {
+        onPlaying={(event) => {
+          const audio = event.currentTarget;
+
+          if (pendingResumeTimeRef.current !== null) {
+            audio.currentTime = pendingResumeTimeRef.current;
+            setCurrentTime(audio.currentTime);
+            pendingResumeTimeRef.current = null;
+          }
+
           setIsPlaying(true);
           setIsBuffering(false);
         }}
         onPause={() => {
           setIsPlaying(false);
           setIsBuffering(false);
-          persistExactProgress(false);
+
+          if (!pendingTransitionRef.current) {
+            persistExactProgress(false);
+          }
+
           if ("mediaSession" in navigator) {
             navigator.mediaSession.playbackState = "paused";
           }
         }}
         onWaiting={() => setIsBuffering(true)}
-        onCanPlay={() => setIsBuffering(false)}
+        onCanPlay={(event) => {
+          setIsBuffering(false);
+
+          const audio = event.currentTarget;
+
+          if (!pendingAutoplayRef.current) return;
+
+          pendingAutoplayRef.current = false;
+
+          void event.currentTarget.play().catch(() => {
+            setIsPlaying(false);
+            setErrorMessage(
+              "پخش صدا در این مرورگر شروع نشد. دوباره تلاش کنید.",
+            );
+          });
+        }}
         onEnded={() => {
           if (!activeEpisode) return;
 
