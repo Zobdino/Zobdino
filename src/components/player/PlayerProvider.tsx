@@ -100,6 +100,7 @@ export default function PlayerProvider({
     useRef<PendingAudioTransition | null>(null);
   const pendingAutoplayRef = useRef(false);
   const pendingResumeTimeRef = useRef<number | null>(null);
+  const resumeAppliedRef = useRef(false);
   const lastPersistedSecondRef = useRef(-1);
   const sleepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -620,6 +621,8 @@ export default function PlayerProvider({
           );
 
           pendingResumeTimeRef.current = audio.currentTime;
+          resumeAppliedRef.current = false;
+
           audio.playbackRate = listening.settings.playbackRate;
 
           setDuration(nextDuration);
@@ -640,6 +643,15 @@ export default function PlayerProvider({
           if (!activeEpisode) return;
 
           const audio = event.currentTarget;
+          if (
+            pendingResumeTimeRef.current !== null &&
+            !resumeAppliedRef.current
+          ) {
+            audio.currentTime = pendingResumeTimeRef.current;
+            resumeAppliedRef.current = true;
+            setCurrentTime(audio.currentTime);
+          }
+
           const nextTime = audio.currentTime;
           const nextDuration =
             Number.isFinite(audio.duration) && audio.duration > 0
